@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.13" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -v
+
+  # polyscan scans its own code. The examples contain deliberate problems and
+  # the test fixtures contain saved scanner output, so both are excluded.
+  dogfood:
+    name: Scan this repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          exclude: examples,tests
+          fail-on: high
+
+  # End-to-end check on GitHub, where Docker and the vulnerability databases
+  # are reachable: every tool must run and the demo projects must be flagged.
+  demo-scan:
+    name: Demo projects are flagged
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: scan
+        uses: ./
+        with:
+          path: examples/vulnerable-demo
+          fail-on: none
+      - name: Check the report
+        env:
+          REPORT_DIR: ${{ steps.scan.outputs.report-dir }}
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+          data = json.load(open(os.path.join(os.environ["REPORT_DIR"], "polyscan-report.json")))
+          tools = {t["name"]: t for t in data["tools"]}
+          print({k: (v["status"], v["findings"]) for k, v in tools.items()})
+          problems = []
+          for name, t in tools.items():
+              if t["status"] != "ok":
+                  problems.append(f'{name}: {t["status"]} {t["detail"]}')
+              elif t["findings"] == 0:
+                  problems.append(f"{name}: ran but found nothing in the demo projects")
+          langs = set(data["languages"])
+          if langs != {"java", "javascript", "php", "python", "rust"}:
+              problems.append(f"languages detected: {sorted(langs)}")
+          if problems:
+              print("PROBLEMS:", *problems, sep="\n  ")
+              sys.exit(1)
+          EOF

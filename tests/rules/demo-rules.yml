@@ -1,0 +1,31 @@
+rules:
+  - id: demo.python.shell-true
+    languages: [python]
+    severity: ERROR
+    message: subprocess called with shell=True
+    pattern: subprocess.run(..., shell=True)
+  - id: demo.python.os-system
+    languages: [python]
+    severity: WARNING
+    message: os.system with a built command
+    pattern: os.system(...)
+  - id: demo.js.eval
+    languages: [javascript]
+    severity: ERROR
+    message: eval of dynamic input
+    pattern: eval(...)
+  - id: demo.php.eval
+    languages: [php]
+    severity: ERROR
+    message: eval of dynamic input
+    pattern: eval(...)
+  - id: demo.java.runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: command built from input
+    pattern: Runtime.getRuntime().exec(...)
+  - id: demo.rust.shell
+    languages: [rust]
+    severity: WARNING
+    message: command run through a shell
+    pattern: Command::new("sh")

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polyscan"
+version = "0.1.0"
+description = "Run security scanners for Python, JavaScript, Java, PHP and Rust with one command."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []  # standard library only
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+polyscan = "polyscan.cli:main"
+
+[tool.setuptools]
+packages = ["polyscan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

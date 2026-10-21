@@ -1,0 +1,7 @@
+{
+  "_readme": ["Hand written for the demo."],
+  "packages": [
+    { "name": "guzzlehttp/guzzle", "version": "6.5.4" }
+  ],
+  "packages-dev": []
+}
