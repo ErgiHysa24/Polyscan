@@ -11,11 +11,28 @@ polyscan scan . --html report.html
 | Controllo | Strumento | Linguaggi | Come gira |
 |---|---|---|---|
 | Codice pericoloso (SAST) | [Semgrep](https://semgrep.dev) | tutti e 5 | Docker o installato |
+| Iniezioni SQL (regole di polyscan) | Semgrep, con `polyscan/rules/sql-injection.yml` | tutti e 5 | come Semgrep |
 | Segreti nel codice | [Gitleaks](https://github.com/gitleaks/gitleaks) | qualsiasi | Docker o installato |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
 OSV-Scanner legge `requirements.txt`, `package-lock.json`, `pom.xml`, `composer.lock` e `Cargo.lock`. Senza questi file non può controllare le librerie: il rapporto lo dice.
+
+## Controlli SQL
+
+Una **SQL injection** nasce quando una query viene costruita incollando testo (concatenazione, f-string, `format!`, `String.format`...) e poi eseguita: se una parte arriva dall'utente, può cambiare la query. polyscan include regole proprie per Semgrep che cercano proprio questo: un testo che contiene SQL, costruito a mano, che arriva a una chiamata che esegue la query (`execute`, `query`, `executeQuery`, `mysqli_query`, `sqlx::query`...). Il valore viene seguito attraverso le variabili dentro la stessa funzione.
+
+| Linguaggio | Costruzioni riconosciute |
+|---|---|
+| Python | `+`, f-string, `%`, `.format()` |
+| JavaScript / TypeScript | `+`, template literal con `${...}` |
+| Java | `+`, `String.format`, `.formatted()` |
+| PHP | `.`, stringhe con `$variabile`, `sprintf` |
+| Rust | `format!` seguito da `execute`/`query`/`sqlx::query`... |
+
+Le query con segnaposto (`?`, `%s`, `.bind()`, `params![]`) e le query fatte solo di costanti non vengono segnalate. Le regole sono provate con esempi `ruleid`/`ok` in `tests/sql/`. Per spegnerle: `--no-builtin-rules`.
+
+Limiti: il seguire il valore funziona **dentro una funzione**; se la query viene costruita in una funzione e eseguita in un'altra, può sfuggire. Non guarda i file `.sql` e non capisce un ORM: controlla solo il codice dell'applicazione.
 
 ## Installazione
 
@@ -101,14 +118,14 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.1)
 
-- **69 test** (parser, rilevamento linguaggi, esecuzione, rapporti, uscite). Sono stati provati anche rompendo di proposito le difese (escape dell'HTML, segreti nascosti, output vuoto) per vedere che i test falliscano.
+- **92 test** (parser, rilevamento linguaggi, esecuzione, rapporti, uscite). Sono stati provati anche rompendo di proposito le difese (escape dell'HTML, segreti nascosti, output vuoto) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** su `examples/vulnerable-demo`: Semgrep (con regole locali), Gitleaks, Bandit. I loro file di prova in `tests/fixtures/` sono output reale.
 - **Non provati con lo strumento vero** nell'ambiente di sviluppo: la lettura dei risultati di **OSV-Scanner** (il suo database non era raggiungibile: il file di prova è scritto a mano sullo schema documentato) e la modalità **Docker** (il servizio non era attivo: si è provata solo la costruzione dei comandi e la gestione dell'errore). Lo verifica il job `demo-scan` della CI su GitHub, dove tutto è raggiungibile.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete e non sono state scaricate: cosa trovano su Java, PHP e Rust dipende da quelle regole.
 
 ## Limiti
 
-- Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga). Non c'è ancora la deduplicazione.
+- Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.
 - Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, `cargo audit`, `npm audit`) non sono ancora inclusi.
 - Nessuno strumento trova tutto: un risultato pulito riduce il rischio, non lo azzera.

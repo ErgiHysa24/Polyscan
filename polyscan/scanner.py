@@ -48,11 +48,12 @@ def build_command(tool: Tool, how: str, root: Path, opts: ScanOptions) -> list[s
     """Return the argv list to run. Never goes through a shell."""
     if how == "local":
         return tool.local_cmd(str(root), opts)
-    # Read-only mount: a scanner can read the project but never change it.
-    return [
-        "docker", "run", "--rm", "-v", f"{root}:{CONTAINER_ROOT}:ro",
-        "-w", CONTAINER_ROOT, tool.image, *tool.docker_cmd(opts),
-    ]  # fmt: skip
+    # Read-only mounts: a scanner can read the project but never change it.
+    mounts = [(str(root), CONTAINER_ROOT)] + tool.mounts(opts)
+    cmd = ["docker", "run", "--rm"]
+    for host, inside in mounts:
+        cmd += ["-v", f"{host}:{inside}:ro"]
+    return cmd + ["-w", CONTAINER_ROOT, tool.image, *tool.docker_cmd(opts)]
 
 
 def choose_how(tool: Tool, mode: str) -> tuple[str | None, str]:
@@ -99,6 +100,18 @@ def read_line(root: Path, rel: str, line: int, limit: int = 200) -> str:
     return ""
 
 
+def dedupe(findings: list[Finding]) -> list[Finding]:
+    """Drop exact repeats (a rule can match the same line twice, e.g. in Rust)."""
+    seen = set()
+    out = []
+    for f in findings:
+        key = (f.tool, f.rule, f.file, f.line, f.message)
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
+
+
 def add_snippets(findings: list[Finding], root: Path) -> list[Finding]:
     """Fill in the code line where the tool gave none (or gave a placeholder)."""
     out = []
@@ -143,7 +156,7 @@ def run_tool(tool: Tool, how: str, root: Path, opts: ScanOptions, timeout: int) 
         findings = tool.parse(proc.stdout, str(root))
     except (ValueError, TypeError, AttributeError) as exc:
         return ToolResult(tool.name, ERROR, f"unreadable output: {exc}", seconds=seconds)
-    findings = [f for f in findings if not is_excluded(f.file, opts.excludes)]
+    findings = dedupe([f for f in findings if not is_excluded(f.file, opts.excludes)])
     findings = add_snippets(findings, root)
     detail = f"via {how}"
     if tool.reports_errors:
@@ -165,7 +178,9 @@ def scan(
         raise ValueError(f"mode must be one of {MODES}")
     root = root.resolve()
     opts = opts or ScanOptions()
-    opts = ScanOptions(opts.semgrep_configs, tuple(sorted(set(opts.excludes) | DEFAULT_EXCLUDES)))
+    opts = ScanOptions(
+        opts.semgrep_configs, tuple(sorted(set(opts.excludes) | DEFAULT_EXCLUDES)), opts.builtin_rules
+    )
     languages = detect_languages(root, frozenset(opts.excludes))
     result = ScanResult(str(root), languages, mode=mode)
 

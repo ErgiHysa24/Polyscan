@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .detect import EXTENSIONS
 from .models import Finding, Severity
@@ -52,11 +53,16 @@ def parse_semgrep(text: str, root: str) -> list[Finding]:
     for r in data.get("results", []):
         extra = r.get("extra", {})
         path = rel_path(r.get("path", ""), root)
+        rule = r.get("check_id", "")
+        if "polyscan-" in rule:
+            # Semgrep prefixes the id with the folder of the rule file, which
+            # differs between local runs and Docker. Show the stable part only.
+            rule = rule[rule.index("polyscan-"):]
         findings.append(
             Finding(
                 tool="semgrep",
                 severity=SEMGREP_SEVERITY.get(str(extra.get("severity", "")).upper(), Severity.MEDIUM),
-                rule=r.get("check_id", ""),
+                rule=rule,
                 message=" ".join(str(extra.get("message", "")).split()),
                 file=path,
                 line=int(r.get("start", {}).get("line", 0)),
@@ -205,11 +211,21 @@ class Tool:
         """Arguments placed after the image name; the folder is at /src."""
         raise NotImplementedError
 
+    def mounts(self, opts: "ScanOptions") -> list[tuple[str, str]]:
+        """Extra read-only folders (host path, container path) needed in Docker."""
+        return []
+
+
+RULES_DIR = Path(__file__).parent / "rules"
+RULES_IN_CONTAINER = "/rules"
+BUILTIN_RULE_FILES = ("sql-injection.yml",)
+
 
 @dataclass
 class ScanOptions:
     semgrep_configs: tuple[str, ...] = ("p/security-audit", "p/owasp-top-ten")
     excludes: tuple[str, ...] = ()
+    builtin_rules: bool = True  # polyscan's own rules (SQL injection)
 
 
 class Semgrep(Tool):
@@ -223,19 +239,25 @@ class Semgrep(Tool):
             reports_errors=True,
         )
 
-    def _args(self, target: str, opts: ScanOptions) -> list[str]:
+    def _args(self, target: str, opts: ScanOptions, rules_dir: str) -> list[str]:
         args = ["scan", "--json", "--quiet", "--metrics=off", "--disable-version-check"]
         for cfg in opts.semgrep_configs:
             args += ["--config", cfg]
+        if opts.builtin_rules:
+            for name in BUILTIN_RULE_FILES:
+                args += ["--config", f"{rules_dir}/{name}"]
         for ex in opts.excludes:
             args += ["--exclude", ex]
         return args + [target]
 
     def local_cmd(self, target, opts):
-        return ["semgrep"] + self._args(target, opts)
+        return ["semgrep"] + self._args(target, opts, str(RULES_DIR))
 
     def docker_cmd(self, opts):
-        return ["semgrep"] + self._args(CONTAINER_ROOT, opts)
+        return ["semgrep"] + self._args(CONTAINER_ROOT, opts, RULES_IN_CONTAINER)
+
+    def mounts(self, opts):
+        return [(str(RULES_DIR), RULES_IN_CONTAINER)] if opts.builtin_rules else []
 
 
 class Gitleaks(Tool):

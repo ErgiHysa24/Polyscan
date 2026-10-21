@@ -19,5 +19,8 @@ polyscan = "polyscan.cli:main"
 [tool.setuptools]
 packages = ["polyscan"]
 
+[tool.setuptools.package-data]
+polyscan = ["rules/*.yml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

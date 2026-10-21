@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="folder or file pattern to ignore (repeatable)")  # fmt: skip
     s.add_argument("--semgrep-config", action="append", metavar="CFG",
                    help="Semgrep rules: a registry pack like p/php or a local file (repeatable)")  # fmt: skip
+    s.add_argument("--no-builtin-rules", action="store_true",
+                   help="do not load polyscan's own Semgrep rules (SQL injection)")  # fmt: skip
     s.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
     s.add_argument("--timeout", type=int, default=900, help="seconds allowed for each tool (default: 900)")
 
@@ -77,6 +79,7 @@ def cmd_scan(args) -> int:
     opts = ScanOptions(
         semgrep_configs=tuple(args.semgrep_config) if args.semgrep_config else defaults.semgrep_configs,
         excludes=tuple(args.exclude),
+        builtin_rules=not args.no_builtin_rules,
     )
     result = scan(root, args.mode, opts, only, args.timeout)
 

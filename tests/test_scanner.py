@@ -41,7 +41,7 @@ def test_docker_command_mounts_read_only_and_uses_no_shell():
 def test_semgrep_command_uses_configs_and_excludes():
     opts = ScanOptions(semgrep_configs=("p/php", "rules.yml"), excludes=("tests",))
     cmd = build_command(Semgrep(), "local", Path("/work/proj"), opts)
-    assert cmd.count("--config") == 2 and "p/php" in cmd and "rules.yml" in cmd
+    assert cmd.count("--config") == 3 and "p/php" in cmd and "rules.yml" in cmd  # 2 + built-in
     assert "--metrics=off" in cmd  # no telemetry
     assert cmd[cmd.index("--exclude") + 1] == "tests"
     assert cmd[-1] == "/work/proj"
@@ -208,3 +208,14 @@ def test_scan_errors_are_shown_even_when_the_tool_succeeds(tmp_path):
     tool.reports_errors = True
     res = run_tool(tool, "local", tmp_path, OPTS, 30)
     assert res.status == OK and "2 scan error" in res.detail
+
+
+def test_identical_findings_are_reported_once(tmp_path):
+    def parse(text, root):
+        same = Finding("fake", Severity.HIGH, "r", "m", file="a.rs", line=15)
+        other_line = Finding("fake", Severity.HIGH, "r", "m", file="a.rs", line=16)
+        other_rule = Finding("fake", Severity.HIGH, "r2", "m", file="a.rs", line=15)
+        return [same, same, other_line, other_rule]
+
+    res = run_tool(FakeTool("print('{}')", parse=parse), "local", tmp_path, OPTS, 30)
+    assert [(f.rule, f.line) for f in res.findings] == [("r", 15), ("r", 16), ("r2", 15)]

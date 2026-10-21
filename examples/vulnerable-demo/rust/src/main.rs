@@ -9,3 +9,9 @@ fn main() {
     let x = unsafe { *v.as_ptr().add(5) }; // out of bounds read
     println!("{}", x);
 }
+
+#[allow(dead_code)]
+fn find_user(conn: &rusqlite::Connection, name: &str) {
+    let q = format!("SELECT * FROM users WHERE name = '{}'", name); // SQL injection
+    conn.execute(&q, []).unwrap();
+}

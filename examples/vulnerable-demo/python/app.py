@@ -18,3 +18,7 @@ def fingerprint(data):
 
 def load(blob):
     return pickle.loads(blob)  # unsafe deserialization
+
+
+def find_user(cur, name):
+    cur.execute("SELECT * FROM users WHERE name = '" + name + "'")  # SQL injection
