@@ -67,6 +67,8 @@ Richiede Docker acceso (ZAP gira solo lì). Come funziona e cosa sapere:
   Come è protetto il segreto: non è mai sulla riga di comando (niente cronologia della shell, niente `ps`); arriva a ZAP dallo *standard input* del container e viene scritto in un file che esiste solo dentro il container (leggibile solo dal suo utente, cancellato con lui): non è un argomento e non è un file sul tuo computer, quindi un altro utente della stessa macchina non può leggerlo; se un programma lo stampasse, viene sostituito con `[hidden]` prima di arrivare a schermo o nei rapporti; il rapporto riporta solo una nota "AUTHENTICATED SCAN" con il nome dell'intestazione. Se la variabile manca o il valore non è ammesso, la scansione **non parte** (non ripiega in silenzio su una scansione anonima, che sembrerebbe pulita). Sono ammessi lettere, cifre e `. _ ~ + / = : ; spazio -`: virgole, apici, backslash e `#` sono rifiutati, perché hanno un significato speciale nel file di ZAP. Per un sito non tuo (con `--allow-remote`) serve `https`. **Usa un account di prova con meno permessi possibile**, mai un amministratore vero. Non gestisce login con form e JavaScript, solo token e cookie già pronti.
 - Una pagina costruita quasi tutta in JavaScript può essere navigata male dal crawler normale.
 
+> Un workflow completo pronto da copiare (codice + sito + registro dei rischi, con `docker compose` e un database usa-e-getta) è in [`examples/github-workflow/`](examples/github-workflow/).
+
 ## Valutazione del rischio (`polyscan risk`)
 
 Uno scanner dice "questa riga è pericolosa". Una valutazione del rischio risponde a un'altra domanda: **quanto conta per questa applicazione, e cosa faccio per primo?** `polyscan risk` legge uno o più rapporti JSON (di `scan` e `dast`) e produce un registro dei rischi con matrice 5×5, priorità, cosa fare e entro quando.
@@ -167,7 +169,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0        # serve solo con history: true
-      - uses: ErgiHysa24/polyscan@main
+      - uses: ErgiHysa24/polyscan@v0.4.0
         with:
           fail-on: high
           exclude: tests,examples
@@ -179,7 +181,7 @@ Il riepilogo appare nella pagina del job e i rapporti (HTML, JSON, Markdown) son
 Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action avvia la tua app, aspetta che risponda, la scansiona e la ferma, anche se la scansione fallisce:
 
 ```yaml
-      - uses: ErgiHysa24/polyscan@main
+      - uses: ErgiHysa24/polyscan@v0.4.0
         with:
           target-url: http://localhost:8000
           start-command: docker compose up -d
@@ -268,7 +270,7 @@ Il comando `polyscan dast` rispetta queste regole **nel codice**, non solo nel t
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
 
-## Cosa è stato verificato (versione 0.3)
+## Cosa è stato verificato (versione 0.4)
 
 - **332 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.

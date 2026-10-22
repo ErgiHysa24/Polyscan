@@ -1,0 +1,24 @@
+# Esempio minimo: la tua app piu' un database solo per il test.
+# Il punto chiave e' che l'app ascolti su 0.0.0.0 (non 127.0.0.1), perche' ZAP gira in un container a parte.
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"          # pubblica la porta: cosi' il job la raggiunge su localhost:8000
+    environment:
+      DATABASE_URL: postgres://demo:demo@db:5432/demo
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo       # credenziali finte: e' un database usa-e-getta, distrutto con `down -v`
+      POSTGRES_DB: demo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10

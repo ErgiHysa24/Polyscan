@@ -1,0 +1,48 @@
+# Esempio di workflow per la TUA applicazione web con database.
+# Copialo in .github/workflows/security.yml nel repository della tua app e adatta i punti segnati con  # <-- .
+#
+# Cosa fa a ogni push e pull request:
+#   1. analizza il codice (SAST, segreti, librerie, configurazione Docker)
+#   2. avvia l'app con docker compose e la scansiona da fuori con OWASP ZAP (passivo)
+#   3. unisce tutto in un registro dei rischi (probabilità x impatto, priorita')
+#   4. carica i rapporti come artifact e, se vuoi, fa fallire la pipeline oltre una certa soglia
+
+name: Security
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  polyscan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # serve per cercare i segreti anche nei vecchi commit (history: true)
+
+      - uses: ErgiHysa24/polyscan@v0.4.0     # <-- blocca una versione; evita @main in produzione
+        with:
+          # --- il codice
+          history: "true"
+          exclude: "tests,node_modules,dist"   # <-- cartelle da saltare
+
+          # --- l'applicazione in esecuzione
+          target-url: http://localhost:8000    # <-- l'indirizzo su cui risponde la tua app
+          start-command: docker compose up -d --wait   # <-- come si avvia (deve ascoltare su 0.0.0.0)
+          stop-command: docker compose down -v          # <-- come si ferma (-v cancella anche il db usa-e-getta)
+          wait-timeout: "120"
+
+          # --- pagine dietro login (facoltativo): togli il commento e crea il secret
+          # auth-header-name: Authorization
+          # auth-header-value: ${{ secrets.ZAP_TOKEN }}
+
+          # --- registro dei rischi
+          risk-assessment: "true"
+          risk-exposure: internet              # internet | internal | local
+          risk-data: personal                  # personal | internal | public
+
+          # --- quando far fallire la pipeline
+          fail-on: high                        # high | critical | medium | low | none
