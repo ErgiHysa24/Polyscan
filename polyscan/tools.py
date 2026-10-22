@@ -487,8 +487,9 @@ class Tool:
         """Extra `docker run` options (before the image name)."""
         return []
 
-    def prepare(self, workdir: Path, opts: "ScanOptions") -> None:
-        """Write extra input files into the throw-away folder before the run."""
+    def stdin_text(self, opts: "ScanOptions") -> str | None:
+        """Text sent to the program's standard input (used for secrets: never a file, never an argument)."""
+        return None
 
     def wanted(self, opts: "ScanOptions") -> bool:
         """False for tools that run only when asked for (silently left out otherwise)."""
@@ -707,7 +708,7 @@ AUTH_NAME_OK = re.compile(r"[A-Za-z0-9-]{1,64}")
 # Characters with a special meaning in the ZAP settings file (comma, backslash, quotes, #, newline)
 # are refused instead of escaped: a rule I cannot be sure of is a rule that may leak or break.
 AUTH_VALUE_OK = re.compile(r"[A-Za-z0-9._~+/=:; -]{1,4096}")
-AUTH_FILE = "zap-auth.properties"
+AUTH_PATH = "/tmp/zap-auth.properties"  # inside the container only
 
 
 def check_auth(name: str, value: str) -> None:
@@ -755,22 +756,25 @@ class Zap(Tool):
 
     def docker_flags(self, opts):
         # Lets the container reach a server on this computer (localhost inside a container is the container).
-        return ["--add-host", f"{HOST_FROM_CONTAINER}:host-gateway"]
+        flags = ["--add-host", f"{HOST_FROM_CONTAINER}:host-gateway"]
+        if opts.auth_value:
+            flags.append("-i")  # keep stdin open: the login header arrives there
+        return flags
 
     def docker_cmd(self, opts):
         if not opts.target_url:
             raise ValueError("no target URL")
         cmd = ["zap-baseline.py", "-t", opts.target_url, "-J", self.report_file, "-m", str(opts.zap_minutes)]
-        if opts.auth_value:
-            # Only the PATH of the settings file is on the command line; the secret is inside the file.
-            cmd += ["-z", f"-configfile {self.workdir}/{AUTH_FILE}"]
-        return cmd
+        if not opts.auth_value:
+            return cmd
+        # The secret reaches the container through STANDARD INPUT and is written to a file that exists only
+        # inside the container (readable by its user alone, gone with --rm). So it is never an argument
+        # (visible in `ps`) and never a file on this computer (readable by other users of a shared machine).
+        script = f'umask 077; cat > {AUTH_PATH} && exec "$@"'
+        return ["sh", "-c", script, "sh", *cmd, "-z", f"-configfile {AUTH_PATH}"]
 
-    def prepare(self, workdir, opts):
-        if opts.auth_value:
-            path = Path(workdir) / AUTH_FILE
-            path.write_text(zap_auth_properties(opts.auth_name, opts.auth_value), encoding="utf-8")
-            path.chmod(0o644)  # the container's user must read it; the folder is private and deleted afterwards
+    def stdin_text(self, opts):
+        return zap_auth_properties(opts.auth_name, opts.auth_value) if opts.auth_value else None
 
 
 def site_tools() -> list[Tool]:

@@ -161,11 +161,10 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
         if tool.report_file and how == "docker":
             workdir = Path(tmp)
             workdir.chmod(0o777)  # the container's user is not ours; this folder holds only the report
-        if workdir is not None:
-            try:
-                tool.prepare(workdir, opts)
-            except (OSError, ValueError) as exc:
-                return ToolResult(tool.name, ERROR, f"could not prepare the run: {exc}", seconds=time.monotonic() - started)
+        try:
+            stdin = tool.stdin_text(opts)
+        except ValueError as exc:  # the message never contains the secret
+            return ToolResult(tool.name, ERROR, f"could not prepare the run: {exc}", seconds=time.monotonic() - started)
         cmd = build_command(tool, how, root, opts, workdir, name)
         try:
             proc = subprocess.run(
@@ -173,6 +172,7 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
                 capture_output=True,
                 text=True,
                 errors="replace",
+                input=stdin,
                 timeout=timeout,
                 check=False,
                 # Stops Git Bash on Windows from rewriting /src into a Windows path.

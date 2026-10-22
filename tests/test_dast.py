@@ -325,27 +325,47 @@ def test_an_empty_tool_list_means_no_tools_not_the_default_tools(dns):
 
 # ----------------------------------------------------------------- authenticated scan
 
-from polyscan.tools import AUTH_FILE, check_auth, zap_auth_properties  # noqa: E402
+from polyscan.tools import AUTH_PATH, check_auth, zap_auth_properties  # noqa: E402
 
 SECRET = "Bearer s3cr3t-T0KEN.abc"
 
 
-def test_the_secret_is_in_the_settings_file_never_on_the_command_line(tmp_path):
+def test_the_secret_travels_on_stdin_never_in_arguments_or_a_host_file(tmp_path):
     opts = ScanOptions(target_url="http://host.docker.internal:8000", auth_name="Authorization", auth_value=SECRET)
     tool = Zap()
-    tool.prepare(tmp_path, opts)
-    text = (tmp_path / AUTH_FILE).read_text(encoding="utf-8")
-    assert "matchstr=Authorization" in text and f"replacement={SECRET}" in text
     cmd = build_command(tool, "docker", "http://localhost:8000", opts, tmp_path, "n")
-    assert not any("s3cr3t" in part for part in cmd)
-    assert "-configfile /zap/wrk/" + AUTH_FILE in cmd[cmd.index("-z") + 1]
+    assert not any("s3cr3t" in part for part in cmd)  # not visible in `ps`
+    assert "-i" in cmd  # stdin is kept open for it
+    script = cmd[cmd.index("sh") + 2]  # sh -c <script>
+    assert script.startswith("umask 077;") and AUTH_PATH in script and 'exec "$@"' in script
+    assert f"-configfile {AUTH_PATH}" in cmd[cmd.index("-z") + 1]
+    text = tool.stdin_text(opts)
+    assert "matchstr=Authorization" in text and f"replacement={SECRET}" in text
+    assert list(tmp_path.iterdir()) == []  # nothing was written on this computer
 
 
 def test_without_a_login_nothing_is_added(tmp_path):
     tool = Zap()
-    tool.prepare(tmp_path, ScanOptions(target_url="http://x"))
-    assert not (tmp_path / AUTH_FILE).exists()
-    assert "-z" not in tool.docker_cmd(ScanOptions(target_url="http://x"))
+    opts = ScanOptions(target_url="http://x")
+    assert tool.stdin_text(opts) is None
+    cmd = tool.docker_cmd(opts)
+    assert "-z" not in cmd and cmd[0] == "zap-baseline.py"
+    assert "-i" not in tool.docker_flags(opts)
+
+
+def test_run_tool_sends_the_secret_to_stdin_only(monkeypatch, tmp_path):
+    import subprocess
+
+    seen = {}
+
+    def fake(cmd, **kwargs):
+        seen.update(cmd=cmd, **kwargs)
+        raise OSError("stop here")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    opts = ScanOptions(target_url="http://x", auth_name="Authorization", auth_value=SECRET)
+    run_tool(Zap(), "docker", "http://localhost:8000", opts, 10)
+    assert "s3cr3t" in seen["input"] and not any("s3cr3t" in part for part in seen["cmd"])
 
 
 def test_the_secret_does_not_show_in_repr():
