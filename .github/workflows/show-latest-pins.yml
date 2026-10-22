@@ -56,15 +56,14 @@ jobs:
           import json
           d = json.load(open("trivy.json"))
           total = sum(len(r.get("Vulnerabilities") or []) for r in d.get("Results") or [])
+          keep = ("VulnerabilityID", "PkgID", "PkgName", "InstalledVersion", "FixedVersion", "Status", "Title", "PrimaryURL", "Severity")
+          out = {k: d.get(k) for k in ("SchemaVersion", "ArtifactName", "ArtifactType")}
+          out["Results"] = []
           for r in d.get("Results") or []:
-              r["Vulnerabilities"] = (r.get("Vulnerabilities") or [])[:2]
-          d["Results"] = [r for r in d["Results"] if r["Vulnerabilities"]][:2]
-          for r in d["Results"]:
-              for v in r["Vulnerabilities"]:
-                  v["Description"] = (v.get("Description") or "")[:120]
-                  for k in ("References", "CVSS", "CweIDs", "VendorSeverity", "PkgIdentifier", "DataSource", "Layer"):
-                      v.pop(k, None)
-          d.pop("Metadata", None) if len(json.dumps(d.get("Metadata", {}))) > 2000 else None
+              vulns = [{k: v[k] for k in keep if k in v} for v in (r.get("Vulnerabilities") or [])[:2]]
+              if vulns:
+                  out["Results"].append({"Target": r.get("Target"), "Class": r.get("Class"), "Type": r.get("Type"), "Vulnerabilities": vulns})
+          d = {**out, "Results": out["Results"][:1]}
           print("::notice title=trivy-total::" + str(total) + " vulnerabilities in python:3.9.0")
           print("::notice title=trivy-sample::" + json.dumps(d, separators=(",", ":")))
           PY
