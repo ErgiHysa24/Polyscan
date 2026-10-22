@@ -47,7 +47,7 @@ inputs:
     default: Authorization
   auth-header-value:
     description: >-
-      Value of that header, for example "Bearer <token>". Pass it from a secret: ${{ secrets.NAME }}.
+      Value of that header, for example "Bearer <token>". Pass it from a repository secret (the "secrets" context of your workflow), never as plain text.
       Use a TEST account with the least privileges, never a real administrator.
     default: ""
   allow-remote:

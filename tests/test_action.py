@@ -46,3 +46,11 @@ def test_actions_are_pinned_to_commits():
         m = re.search(r"uses: (\S+)@(\S+)", line)
         if m:
             assert re.fullmatch(r"[0-9a-f]{40}", m.group(2)), line
+
+
+def test_every_expression_uses_a_context_the_action_may_read():
+    # GitHub evaluates ${{ }} everywhere, even inside a description: `secrets` is not available in an action
+    # file, and the whole action then fails to load (this happened once).
+    for n, line in enumerate(LINES, 1):
+        for expr in EXPR.findall(line):
+            assert expr.startswith(("inputs.", "steps.", "github.action_path")), f"line {n}: {expr}"
