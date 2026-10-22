@@ -20,6 +20,7 @@ polyscan scan . --html report.html
 | Configurazione sbagliata: `Dockerfile` (regole proprie) | Semgrep, con `polyscan/rules/dockerfile.yml` | Docker | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
 | Immagini Docker: vulnerabilità del sistema operativo e dei pacchetti dentro le immagini (`FROM` dei Dockerfile, `image:` di Compose) | [Trivy](https://trivy.dev), una volta per immagine; solo gravità alta e critica | Docker | solo con Docker acceso e internet |
+| Porte di rete in ascolto su questa macchina (comando `polyscan ports`) | `ss` (non invia nulla in rete) | la macchina stessa | solo Linux |
 | Librerie JavaScript (seconda fonte) | `npm audit`, una volta per ogni `package-lock.json` | JavaScript / TypeScript | solo installato (serve `npm` e internet) |
 | Librerie Rust (seconda fonte) | `cargo-audit` (banca dati RustSec), una volta per ogni `Cargo.lock` | Rust | solo installato (`cargo install cargo-audit --locked`) e internet |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
@@ -95,6 +96,33 @@ Cose da sapere:
 - `--fail-on {low,medium,high,critical}` fa uscire con 1 se c'è un rischio di quel livello o più alto, per bloccare una pipeline.
 - Nell'action: `risk-assessment: "true"` (più `risk-exposure` e `risk-data`) scrive `polyscan-risk-report.html/.json` e il riepilogo nella pagina del job.
 - Il testo dei rapporti letti è trattato come non fidato (HTML con escape e CSP, ANSI tolti, Markdown neutralizzato), e un file che non è un rapporto polyscan viene rifiutato.
+
+## Porte in ascolto (`polyscan ports`)
+
+`polyscan ports` risponde a una domanda: **su questa macchina, quali servizi accettano connessioni di rete, e da chi?** Per una web app con database è il controllo che trova l'errore più classico: il database raggiungibile da fuori.
+
+```bash
+polyscan ports                          # porte attese: 22 (SSH), 80, 443
+polyscan ports --expect 22,80,443,8000  # aggiungi quelle che vuoi esposte
+polyscan ports --json porte.json && polyscan risk porte.json
+```
+
+**Cosa fa, in concreto.** Esegue `ss -H -tulnp`, cioè legge la tabella delle porte in ascolto (TCP e UDP) che il sistema operativo già tiene, con il programma che le ha aperte. Per ogni porta guarda **l'indirizzo a cui è legata**:
+
+| Indirizzo | Significato | Segnalata? |
+|---|---|---|
+| `127.0.0.1` / `::1` | solo la macchina stessa | no, mai |
+| `0.0.0.0` / `::` / `*` | tutte le schede di rete | sì, se non è tra quelle attese |
+| un indirizzo preciso (es. `10.0.0.5`) | quella rete | sì, se non è tra quelle attese |
+
+Le porte note (database come PostgreSQL, MySQL, MongoDB, Redis, Memcached, Elasticsearch; l'API di Docker; Telnet, FTP, RDP, VNC, SMB e altro) sono segnalate con gravità propria e un consiglio (*alta*, e *critica* per l'API di Docker senza cifratura); qualunque altra porta aperta alla rete e non attesa è una segnalazione *bassa* ("controlla che debba essere raggiungibile"). Se la porta è aperta da Docker (`docker-proxy`), il consiglio indica la correzione nel file Compose: `127.0.0.1:5432:5432` invece di `5432:5432`, oppure togliere la riga `ports:`.
+
+**Cosa NON fa, e cosa devi sapere:**
+- **Non invia niente alla rete e non scansiona altre macchine:** legge solo l'elenco del sistema, quindi non serve un'autorizzazione particolare, solo poter eseguire comandi su quella macchina. Per lo stesso motivo non può vedere altri computer.
+- **Non vede il firewall.** "In ascolto su tutte le interfacce" non vuol dire "raggiungibile da internet": un firewall (o il gruppo di sicurezza del provider) può bloccarla. Il risultato è "potrebbe essere raggiungibile", e il consiglio è chiuderla alla fonte, non contare sul firewall.
+- **Solo Linux** (serve `ss`, pacchetto `iproute2`): su Windows o macOS il controllo risulta *non eseguito*, mai "pulito". Eseguilo sulla VM o sul server dove gira l'app. Senza i permessi di amministratore `ss` mostra il nome del programma solo per i tuoi processi.
+- Se `ss` non dà un output comprensibile, il controllo risulta **fallito**, non vuoto: una macchina vera ha sempre qualcosa in ascolto.
+- Il rapporto JSON si può dare a `polyscan risk` come gli altri.
 
 ## Configurazione e storia git
 
@@ -274,7 +302,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.4)
 
-- **362 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **387 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni. Anche `trivy.json` è output vero (Trivy 0.76.1 su `python:3.9.0`, ridotto a 2 vulnerabilità) e il job `demo-scan` prova che Trivy gira davvero nella CI.
 - **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.

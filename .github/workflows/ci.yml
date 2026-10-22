@@ -285,3 +285,61 @@ jobs:
           [ "$BAD" = "failure" ] && [ "$SILENT" = "failure" ]
           # ZAP must not even have started when the app never came up
           [ -z "$BAD_DAST" ] && [ -z "$SILENT_DAST" ]
+
+  ports-check:
+    name: Listening ports (ss) on a real Linux machine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install .
+      - name: Open a fake database port on every interface, and a fake Redis on loopback only
+        run: |
+          mkdir -p /tmp/srv
+          (cd /tmp/srv && nohup python -m http.server 5432 --bind 0.0.0.0 > /dev/null 2>&1 &)
+          (cd /tmp/srv && nohup python -m http.server 6379 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          for i in $(seq 1 20); do curl -s -o /dev/null http://127.0.0.1:5432/ && curl -s -o /dev/null http://127.0.0.1:6379/ && break; sleep 1; done
+          # A short sample of the REAL output of ss, kept as a test fixture afterwards.
+          sample=$(ss -H -tulnp | head -14 | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::notice title=ss-sample::$sample"
+      - name: polyscan ports reports the first and not the second
+        run: |
+          set +e
+          polyscan ports --json ports.json --markdown ports.md --fail-on none
+          code=$?
+          set -e
+          echo "exit code: $code"
+          python - <<'EOF2'
+          import json, sys
+          data = json.load(open("ports.json"))
+          ss = next(t for t in data["tools"] if t["name"] == "ss")
+          files = sorted(f["file"] for f in data["findings"])
+          rules = sorted({f["rule"] for f in data["findings"]})
+          print(f"::notice title=ports-summary::kind={data['kind']} ss={ss['status']} {ss['detail']} findings={files} rules={rules}")
+          problems = []
+          if data["kind"] != "host" or ss["status"] != "ok": problems.append(f"status: {ss}")
+          if "tcp/5432" not in files: problems.append("the database port open on every interface was not reported")
+          pg = [f for f in data["findings"] if f["file"] == "tcp/5432"]
+          if pg and pg[0]["severity"] != "high": problems.append(f"severity: {pg[0]['severity']}")
+          if "tcp/6379" in files: problems.append("a port bound to 127.0.0.1 only must not be reported")
+          if problems:
+              print("::error title=ports-check::" + " | ".join(problems)[:1500]); sys.exit(1)
+          EOF2
+      - name: The port is expected, so it is silent; the risk register reads the result
+        run: |
+          polyscan ports --expect 22,80,443,5432 --json expected.json --fail-on none > /dev/null
+          python - <<'EOF2'
+          import json
+          files = [f["file"] for f in json.load(open("expected.json"))["findings"]]
+          assert "tcp/5432" not in files, files
+          EOF2
+          polyscan risk ports.json --json risk.json > /dev/null || true
+          python - <<'EOF2'
+          import json
+          risk = json.load(open("risk.json"))
+          ids = [r["rule"] for r in risk["risks"]]
+          print("::notice title=ports-risk::" + str(ids))
+          assert "exposed-postgresql" in ids, ids
+          EOF2

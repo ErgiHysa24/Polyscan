@@ -26,7 +26,7 @@ class ScanResult:
     languages: dict[str, int]
     tools: list[ToolResult] = field(default_factory=list)
     mode: str = "auto"
-    kind: str = "folder"  # folder | site
+    kind: str = "folder"  # folder | site | host
     notes: list[str] = field(default_factory=list)  # facts the reader must see, e.g. "remote target"
 
     @property

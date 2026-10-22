@@ -76,6 +76,7 @@ def clamp(value: int) -> int:
 
 # (pattern on "rule message", advice). First match wins; order goes from specific to general.
 ADVICE = [
+    (r"is listening on|unexpected listener|docker-proxy", "Make the service listen on 127.0.0.1 or an internal network only, or block the port with a firewall. With Docker Compose, publish as `127.0.0.1:PORT:PORT` or drop the `ports:` entry."),
     (r"sql", "Use parameterized queries (placeholders) or the ORM's safe API. Never build SQL by joining text with user input."),
     (r"xss|cross.site scripting|innerhtml|document\.write", "Escape output for its context, keep the template engine's auto-escaping on, and add a Content-Security-Policy."),
     (r"command injection|os\.system|subprocess|shell=true|exec\(|child_process|with a shell", "Do not build commands from text: pass an argument list without a shell and check inputs against an allow-list."),

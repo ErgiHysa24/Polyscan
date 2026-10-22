@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .models import Severity
+from .ports import DEFAULT_EXPECTED, check as check_ports
 from .report import to_html, to_json, to_markdown, to_terminal
 from .risk import DATA, EXPOSURES, LEVELS, Context, assess, load_report, merge
 from .riskreport import to_html as risk_html
@@ -83,6 +84,21 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--strict", action="store_true", help="also exit with 3 if a tool is missing")
     d.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
     d.add_argument("--timeout", type=int, default=900, help="seconds allowed for ZAP (default: 900)")
+
+    o = sub.add_parser(
+        "ports",
+        help="which network ports THIS machine is listening on and for whom (reads the list with ss; sends nothing)",
+    )
+    o.add_argument("--expect", default=",".join(map(str, DEFAULT_EXPECTED)), metavar="PORTS",
+                   help="comma-separated ports that are meant to be reachable (default: 22,80,443); these are never "
+                        "reported, even if they are a database port. Every other port open to the network is")  # fmt: skip
+    o.add_argument("--html", metavar="FILE", help="write an HTML report")
+    o.add_argument("--json", metavar="FILE", help="write a JSON report (can be given to `polyscan risk`)")
+    o.add_argument("--markdown", metavar="FILE", help="write a short Markdown summary")
+    o.add_argument("--fail-on", default="high", choices=[x.label for x in Severity] + ["none"],
+                   help="exit with 1 if a finding has this severity or higher (default: high)")  # fmt: skip
+    o.add_argument("--strict", action="store_true", help="also exit with 3 if the check could not run (for example not on Linux)")
+    o.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
 
     r = sub.add_parser(
         "risk",
@@ -205,6 +221,17 @@ def cmd_dast(args) -> int:
     return _finish(args, result)
 
 
+def cmd_ports(args) -> int:
+    try:
+        expected = tuple(int(x) for x in args.expect.split(",") if x.strip())
+        if not all(0 < p < 65536 for p in expected):
+            raise ValueError
+    except ValueError:
+        print("error: --expect must be a comma-separated list of port numbers (1-65535)", file=sys.stderr)
+        return EXIT_USAGE
+    return _finish(args, check_ports(expected))
+
+
 def cmd_risk(args) -> int:
     try:
         ctx = Context(args.exposure, args.data)
@@ -235,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_doctor()
     if args.command == "risk":
         return cmd_risk(args)
+    if args.command == "ports":
+        return cmd_ports(args)
     return cmd_dast(args) if args.command == "dast" else cmd_scan(args)
 
 
