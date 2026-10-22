@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from .models import ERROR, OK, UNAVAILABLE, Finding, Severity, ToolResult
 from .scanner import ScanResult
 
+# Every server runs these; reporting them would teach people to ignore the report.
+ROUTINE = {("udp", 68)}  # DHCP client: how the machine gets its own address
 DEFAULT_EXPECTED = (22, 80, 443)  # what a web server is normally meant to show: SSH, HTTP, HTTPS
 
 DB = "A database should be reachable only by the application that uses it, not by every network the machine is on."
@@ -115,7 +117,7 @@ def findings_for(listeners: list[Listener], expected: tuple[int, ...] = DEFAULT_
     """One finding per (protocol, port, process) that is not limited to this machine."""
     groups: dict[tuple, list[Listener]] = {}
     for item in listeners:
-        if item.scope != "loopback" and item.port not in expected:  # a port you declare is never reported
+        if item.scope != "loopback" and item.port not in expected and (item.proto, item.port) not in ROUTINE:  # a port you declare is never reported
             groups.setdefault((item.proto, item.port, item.process), []).append(item)
     findings = []
     for (proto, port, process), items in sorted(groups.items()):

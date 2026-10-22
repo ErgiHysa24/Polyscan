@@ -179,3 +179,22 @@ def test_cli_ss_missing_is_exit_3_only_with_strict(monkeypatch, capsys):
     assert cli.main(["ports"]) == 0
     assert cli.main(["ports", "--strict"]) == 3
     capsys.readouterr()
+
+
+# ----------------------------------------------------------------- real output
+
+from pathlib import Path  # noqa: E402
+
+
+def test_real_ss_output():
+    # `ss -H -tulnp` on an Ubuntu GitHub runner, with a fake database port open on every interface
+    # and a fake Redis on 127.0.0.1 (tests/fixtures/ss.txt).
+    text = (Path(__file__).parent / "fixtures" / "ss.txt").read_text(encoding="utf-8")
+    listeners, bad = parse_ss(text)
+    assert bad == 0 and len(listeners) == 11
+    by = {(x.proto, x.port, x.host): x for x in listeners}
+    assert by[("udp", 53, "127.0.0.53")].scope == "loopback"        # "127.0.0.53%lo"
+    assert by[("udp", 68, "10.1.1.213")].scope == "interface"       # "10.1.1.213%eth0"
+    assert by[("tcp", 5432, "0.0.0.0")].process == "python" and by[("tcp", 22, "::")].scope == "all"
+    findings = findings_for(listeners)
+    assert [f.rule for f in findings] == ["exposed-postgresql"]     # Redis on loopback, SSH expected, DHCP routine
