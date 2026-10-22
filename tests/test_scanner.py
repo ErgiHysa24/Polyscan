@@ -275,3 +275,25 @@ def test_history_findings_name_the_commit_but_not_the_author():
     (f,) = parse_gitleaks(out, "/ROOT")
     assert "f2f0065a" in f.message and "f2f0065a5" not in f.message
     assert "Mario" not in f.message and "example.com" not in f.message and "Mario" not in str(f.to_dict())
+
+
+def test_semgrep_is_not_quiet_so_that_a_failure_says_why():
+    from polyscan.tools import ScanOptions, Semgrep
+
+    assert "--quiet" not in Semgrep().local_cmd("/p", ScanOptions())
+    assert "--quiet" not in Semgrep().docker_cmd(ScanOptions())
+
+
+def test_a_failure_with_no_text_still_says_so(monkeypatch, tmp_path):
+    import subprocess
+
+    from polyscan.models import ERROR
+    from polyscan.scanner import run_tool
+    from polyscan.tools import ScanOptions, Semgrep
+
+    class P:
+        returncode, stdout, stderr = 2, "", ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: P())
+    r = run_tool(Semgrep(), "local", tmp_path, ScanOptions(), 10)
+    assert r.status == ERROR and "no error text" in r.detail

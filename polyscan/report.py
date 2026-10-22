@@ -101,7 +101,7 @@ def to_terminal(result: ScanResult, limit: int = 30, stream=None) -> str:
         lines.append(f"  ... and {len(findings) - limit} more. Use --html or --json for the full list.")
     if result.had_gaps:
         lines.append("")
-        lines.append(paint("WARNING: some checks did not run. A clean result does NOT mean the code is safe.", "1;31"))
+        lines.append(paint("WARNING: some checks did not run. A clean result does NOT mean it is safe.", "1;31"))
     return "\n".join(lines)
 
 
@@ -123,7 +123,7 @@ def to_markdown(result: ScanResult, limit: int = 20) -> str:
     lines.append(" | ".join(f"**{s.label}** {c.get(s, 0)}" for s in ORDER))
     lines.append("")
     if result.had_gaps:
-        lines += ["> **Some checks did not run.** A clean result does not mean the code is safe.", ""]
+        lines += ["> **Some checks did not run.** A clean result does not mean it is safe.", ""]
     lines += [f"> {_md(n, 400)}" for n in result.notes] + ([""] if result.notes else [])
     lines += ["| Tool | Status | Findings |", "|---|---|---|"]
     for t in result.tools:
@@ -214,7 +214,7 @@ def to_html(result: ScanResult) -> str:
     )
     warn = (
         '<div class="warn">Some checks did not run (see the tool table). '
-        "A clean result does not mean the code is safe.</div>"
+        "A clean result does not mean it is safe.</div>"
         if result.had_gaps
         else ""
     ) + "".join(f'<div class="warn">{_e(n)}</div>' for n in result.notes)

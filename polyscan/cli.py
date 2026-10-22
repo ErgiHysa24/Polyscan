@@ -12,7 +12,8 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .models import Severity
-from .ports import DEFAULT_EXPECTED, check as check_ports
+from .ports import DEFAULT_EXPECTED
+from .ports import check as check_ports
 from .report import to_html, to_json, to_markdown, to_terminal
 from .risk import DATA, EXPOSURES, LEVELS, Context, assess, load_report, merge
 from .riskreport import to_html as risk_html
@@ -102,9 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     r = sub.add_parser(
         "risk",
-        help="turn one or more JSON reports (from scan / dast) into a risk register: likelihood x impact, priorities, what to do",
+        help="turn one or more JSON reports (from scan, dast or ports) into a risk register: likelihood x impact, priorities, what to do",
     )
-    r.add_argument("reports", nargs="+", metavar="REPORT.json", help="reports written with --json (several can be combined)")
+    r.add_argument("reports", nargs="+", metavar="REPORT.json", help="reports written with --json by scan, dast or ports (several can be combined)")
     r.add_argument("--exposure", choices=sorted(EXPOSURES), default="internet",
                    help="who can reach the application (default: internet, the cautious choice)")  # fmt: skip
     r.add_argument("--data", choices=sorted(DATA), default="personal",

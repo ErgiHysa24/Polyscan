@@ -16,14 +16,14 @@ class Severity(IntEnum):
     CRITICAL = 4
 
     @classmethod
-    def parse(cls, value: str) -> "Severity":
+    def parse(cls, value: str) -> Severity:
         try:
             return cls[value.strip().upper()]
         except (KeyError, AttributeError):
             raise ValueError(f"unknown severity: {value!r}") from None
 
     @classmethod
-    def from_cvss(cls, score: float) -> "Severity":
+    def from_cvss(cls, score: float) -> Severity:
         """Map a CVSS base score to a severity, using the FIRST bands."""
         if score >= 9.0:
             return cls.CRITICAL

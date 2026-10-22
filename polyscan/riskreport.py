@@ -12,7 +12,18 @@ from datetime import datetime, timezone
 
 from . import __version__
 from .report import CSS, _clean, _e, _md
-from .risk import DATA, EXPOSURES, LEVEL_UPPER, LEVELS, TARGETS, Context, Risk, Source, level_for, matrix
+from .risk import (
+    DATA,
+    EXPOSURES,
+    LEVEL_UPPER,
+    LEVELS,
+    TARGETS,
+    Context,
+    Risk,
+    Source,
+    level_for,
+    matrix,
+)
 
 ORDER = list(reversed(LEVELS))  # critical first
 
@@ -33,10 +44,14 @@ def method_lines() -> list[str]:
     return [
         "risk score = likelihood (1-5) x impact (1-5), from 1 to 25",
         "levels: 1-5 low, 6-12 medium, 13-19 high, 20-25 critical",
-        "likelihood starts from the kind of finding (secret 4, runtime 3, dependency 3, code 3, configuration 2) "
-        "and moves by +1 for an internet-facing application, -1 for one that runs on a single machine",
-        "impact starts from the tool's severity (critical 5, high 4, medium 3, low 2, info 1); personal data adds 1 "
-        "to high and critical findings, public data subtracts 1 from all",
+        (
+            "likelihood starts from the kind of finding (secret 4, runtime 3, dependency 3, code 3, configuration 2) "
+            "and moves by +1 for an internet-facing application, -1 for one that runs on a single machine"
+        ),
+        (
+            "impact starts from the tool's severity (critical 5, high 4, medium 3, low 2, info 1); personal data adds 1 "
+            "to high and critical findings, public data subtracts 1 from all"
+        ),
         "this is a transparent heuristic, not a measurement: read the reasons of each risk and adjust what you disagree with",
     ]
 

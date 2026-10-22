@@ -60,7 +60,7 @@ def rel_path(path: str, root: str) -> str:
         if p.startswith(prefix):
             p = p[len(prefix):]
             break
-    return p[2:] if p.startswith("./") else p
+    return p.removeprefix("./")
 
 
 def language_of(path: str) -> str:
@@ -521,26 +521,26 @@ class Tool:
             return True
         return bool(self.languages & set(detected))
 
-    def local_cmd(self, target: str, opts: "ScanOptions") -> list[str]:
+    def local_cmd(self, target: str, opts: ScanOptions) -> list[str]:
         raise NotImplementedError
 
-    def docker_cmd(self, opts: "ScanOptions") -> list[str]:
+    def docker_cmd(self, opts: ScanOptions) -> list[str]:
         """Arguments placed after the image name; the folder is at /src."""
         raise NotImplementedError
 
-    def mounts(self, opts: "ScanOptions") -> list[tuple[str, str]]:
+    def mounts(self, opts: ScanOptions) -> list[tuple[str, str]]:
         """Extra read-only folders (host path, container path) needed in Docker."""
         return []
 
-    def docker_flags(self, opts: "ScanOptions") -> list[str]:
+    def docker_flags(self, opts: ScanOptions) -> list[str]:
         """Extra `docker run` options (before the image name)."""
         return []
 
-    def stdin_text(self, opts: "ScanOptions") -> str | None:
+    def stdin_text(self, opts: ScanOptions) -> str | None:
         """Text sent to the program's standard input (used for secrets: never a file, never an argument)."""
         return None
 
-    def wanted(self, opts: "ScanOptions") -> bool:
+    def wanted(self, opts: ScanOptions) -> bool:
         """False for tools that run only when asked for (silently left out otherwise)."""
         return True
 
@@ -578,7 +578,9 @@ class Semgrep(Tool):
         )
 
     def _args(self, target: str, opts: ScanOptions, rules_dir: str) -> list[str]:
-        args = ["scan", "--json", "--quiet", "--metrics=off", "--disable-version-check"]
+        # No --quiet: with it a failure (for example no internet to download the rule packs) prints NOTHING,
+        # and the report would say "exit code 2" without a reason. JSON still goes alone to stdout.
+        args = ["scan", "--json", "--metrics=off", "--disable-version-check"]
         for cfg in opts.semgrep_configs:
             args += ["--config", cfg]
         if opts.builtin_rules:

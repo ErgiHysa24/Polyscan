@@ -207,7 +207,9 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
         return ToolResult(tool.name, SKIPPED, tool.skip_codes[proc.returncode], seconds=seconds)
     if proc.returncode not in tool.ok_codes:
         return ToolResult(
-            tool.name, ERROR, f"exit code {proc.returncode}: {_tail(proc.stderr or proc.stdout)}", seconds=seconds
+            tool.name, ERROR,
+            f"exit code {proc.returncode}: {_tail(proc.stderr or proc.stdout) or 'the tool printed no error text'}",
+            seconds=seconds,
         )
     if not output.strip():
         return ToolResult(

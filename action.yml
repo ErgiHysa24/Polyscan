@@ -118,6 +118,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         # Compiled from source (about 5 minutes) at a fixed version; skipped when there is no Rust lockfile.
+        case "$INPUT_PATH" in -*) echo "::error::path must not start with a dash"; exit 2;; esac  # find would read it as an option
         if find "$INPUT_PATH" -name Cargo.lock -not -path '*/target/*' -not -path '*/node_modules/*' | grep -q .; then
           if command -v cargo > /dev/null; then
             cargo install cargo-audit --locked --version 0.22.2 --quiet \
