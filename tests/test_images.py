@@ -186,10 +186,12 @@ def test_not_our_output_is_an_error_not_clean(bad):
         parse_trivy(bad, "/p")
 
 
-@pytest.mark.skipif(not (FIX / "trivy.json").exists(), reason="real sample not saved yet")
 def test_real_trivy_output():
+    # Real output of Trivy 0.76.1 on python:3.9.0, cut to 2 vulnerabilities (fixtures/trivy.json).
     findings = parse_trivy((FIX / "trivy.json").read_text(encoding="utf-8"), "/p")
-    assert findings and all(f.rule and f.file and f.line for f in findings)
+    assert [f.rule for f in findings] == ["CVE-2022-1304", "CVE-2018-12886"]
+    assert all(f.severity == Severity.HIGH and f.file == "docker/old-base.Dockerfile" and f.line == 2 for f in findings)
+    assert "No fix published yet" in findings[0].message  # the real report has no FixedVersion for these
 
 
 # ----------------------------------------------------------------- the tool

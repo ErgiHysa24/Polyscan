@@ -1,0 +1,45 @@
+{
+ "kind": "trivy",
+ "skipped": [],
+ "images": [
+  {
+   "ref": "python:3.9.0",
+   "source": "docker/old-base.Dockerfile",
+   "line": 2,
+   "report": {
+    "SchemaVersion": 2,
+    "ArtifactName": "python:3.9.0",
+    "ArtifactType": "container_image",
+    "Results": [
+     {
+      "Target": "python:3.9.0 (debian 10.6)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+       {
+        "VulnerabilityID": "CVE-2022-1304",
+        "PkgID": "comerr-dev@2.1-1.44.5-1+deb10u3",
+        "PkgName": "comerr-dev",
+        "InstalledVersion": "2.1-1.44.5-1+deb10u3",
+        "Status": "affected",
+        "Title": "e2fsprogs: out-of-bounds read/write via crafted filesystem",
+        "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2022-1304",
+        "Severity": "HIGH"
+       },
+       {
+        "VulnerabilityID": "CVE-2018-12886",
+        "PkgID": "cpp-8@8.3.0-6",
+        "PkgName": "cpp-8",
+        "InstalledVersion": "8.3.0-6",
+        "Status": "will_not_fix",
+        "Title": "gcc: spilling of stack protection address in cfgexpand.c and function.c leads to stack-overflow protection bypass",
+        "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2018-12886",
+        "Severity": "HIGH"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}
