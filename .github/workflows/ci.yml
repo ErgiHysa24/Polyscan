@@ -87,6 +87,7 @@ jobs:
         with:
           path: examples/vulnerable-demo
           fail-on: none
+          risk-assessment: "true"
       - name: Check the report
         env:
           REPORT_DIR: ${{ steps.scan.outputs.report-dir }}
@@ -105,6 +106,15 @@ jobs:
           langs = set(data["languages"])
           if langs != {"java", "javascript", "php", "python", "rust", "docker"}:
               problems.append(f"languages detected: {sorted(langs)}")
+          risk = json.load(open(os.path.join(os.environ["REPORT_DIR"], "polyscan-risk-report.json")))
+          print({"risk-summary": risk["summary"], "gaps": risk["coverage_gaps"]})
+          if risk["kind"] != "risk-assessment" or not risk["risks"] or not risk["risks"][0]["reasons"]:
+              problems.append("the risk register is empty or has no reasons")
+          if sum(risk["summary"].values()) != len(risk["risks"]):
+              problems.append("risk summary does not match the register")
+          for name in ("polyscan-risk-report.html", "polyscan-risk-summary.md"):
+              if not os.path.getsize(os.path.join(os.environ["REPORT_DIR"], name)):
+                  problems.append(f"{name} is empty")
           if problems:
               print("PROBLEMS:", *problems, sep="\n  ")
               sys.exit(1)

@@ -13,6 +13,11 @@ from urllib.parse import urlsplit
 from . import __version__
 from .models import Severity
 from .report import to_html, to_json, to_markdown, to_terminal
+from .risk import DATA, EXPOSURES, LEVELS, Context, assess, load_report, merge
+from .riskreport import to_html as risk_html
+from .riskreport import to_json as risk_json
+from .riskreport import to_markdown as risk_markdown
+from .riskreport import to_terminal as risk_terminal
 from .scanner import MODES, dast, scan
 from .target import TargetError, classify
 from .tools import ScanOptions, all_tools, check_auth, pinned_version, site_tools
@@ -78,6 +83,23 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--strict", action="store_true", help="also exit with 3 if a tool is missing")
     d.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
     d.add_argument("--timeout", type=int, default=900, help="seconds allowed for ZAP (default: 900)")
+
+    r = sub.add_parser(
+        "risk",
+        help="turn one or more JSON reports (from scan / dast) into a risk register: likelihood x impact, priorities, what to do",
+    )
+    r.add_argument("reports", nargs="+", metavar="REPORT.json", help="reports written with --json (several can be combined)")
+    r.add_argument("--exposure", choices=sorted(EXPOSURES), default="internet",
+                   help="who can reach the application (default: internet, the cautious choice)")  # fmt: skip
+    r.add_argument("--data", choices=sorted(DATA), default="personal",
+                   help="what the application holds: public, internal, or personal (users, passwords, payments). Default: personal")  # fmt: skip
+    r.add_argument("--html", metavar="FILE", help="write an HTML report with the risk matrix")
+    r.add_argument("--json", metavar="FILE", help="write a JSON report")
+    r.add_argument("--markdown", metavar="FILE", help="write a Markdown register")
+    r.add_argument("--fail-on", default="none", choices=["none", *LEVELS],
+                   help="exit with 1 if a risk has this level or higher (default: none)")  # fmt: skip
+    r.add_argument("--strict", action="store_true", help="also exit with 3 if a check of the source reports did not run")
+    r.add_argument("--limit", type=int, default=15, help="risks shown in the terminal (default: 15)")
 
     sub.add_parser("doctor", help="show which tools are available on this computer")
     return p
@@ -183,6 +205,27 @@ def cmd_dast(args) -> int:
     return _finish(args, result)
 
 
+def cmd_risk(args) -> int:
+    try:
+        ctx = Context(args.exposure, args.data)
+        sources = [load_report(path) for path in args.reports]
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    risks = assess(merge(sources), ctx)
+    print(risk_terminal(ctx, risks, sources, args.limit))
+    for path, write, label in ((args.json, risk_json, "JSON"), (args.markdown, risk_markdown, "Markdown"), (args.html, risk_html, "HTML")):
+        if path:
+            Path(path).write_text(write(ctx, risks, sources), encoding="utf-8")
+            print(f"{label} report: {path}")
+    if args.fail_on != "none" and any(LEVELS.index(r.level) >= LEVELS.index(args.fail_on) for r in risks):
+        return EXIT_FINDINGS
+    statuses = {t.get("status") for s in sources for t in s.tools}
+    if "error" in statuses or (args.strict and "unavailable" in statuses):
+        return EXIT_GAPS  # the register may be incomplete: never look clean
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -190,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "doctor":
         return cmd_doctor()
+    if args.command == "risk":
+        return cmd_risk(args)
     return cmd_dast(args) if args.command == "dast" else cmd_scan(args)
 
 

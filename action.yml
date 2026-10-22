@@ -55,6 +55,16 @@ inputs:
       "true" to scan a target that is NOT on the runner or a private network. Say true only if you own it or have
       written authorization to test it. Anything else is refused.
     default: "false"
+  # ---- risk assessment
+  risk-assessment:
+    description: '"true" to also write a risk register (likelihood x impact, priorities, what to do) from the reports of this run.'
+    default: "false"
+  risk-exposure:
+    description: Who can reach the application - internet, internal or local. Used by the risk register.
+    default: internet
+  risk-data:
+    description: What the application holds - public, internal or personal. Used by the risk register.
+    default: personal
   # ---- both
   artifact-name:
     description: Name of the uploaded report. Change it if the action runs more than once in the same workflow run (names must be unique).
@@ -227,6 +237,36 @@ runs:
         set -e
         [ -f "$REPORT_DIR/polyscan-dast-summary.md" ] && cat "$REPORT_DIR/polyscan-dast-summary.md" >> "$GITHUB_STEP_SUMMARY"
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Risk assessment
+      id: risk
+      if: ${{ always() && inputs.risk-assessment == 'true' }}
+      shell: bash
+      env:
+        INPUT_EXPOSURE: ${{ inputs.risk-exposure }}
+        INPUT_DATA: ${{ inputs.risk-data }}
+        REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
+      run: |
+        args=(risk --exposure "$INPUT_EXPOSURE" --data "$INPUT_DATA"
+              --html "$REPORT_DIR/polyscan-risk-report.html"
+              --json "$REPORT_DIR/polyscan-risk-report.json"
+              --markdown "$REPORT_DIR/polyscan-risk-summary.md")
+        reports=()
+        for name in polyscan-report.json polyscan-dast-report.json; do
+          [ -f "$REPORT_DIR/$name" ] && reports+=("$REPORT_DIR/$name")
+        done
+        if [ ${#reports[@]} -eq 0 ]; then
+          echo "::warning::risk-assessment: there is no scan report to read"
+          exit 0
+        fi
+        set +e
+        polyscan "${args[@]}" "${reports[@]}"
+        code=$?
+        set -e
+        [ -f "$REPORT_DIR/polyscan-risk-summary.md" ] && cat "$REPORT_DIR/polyscan-risk-summary.md" >> "$GITHUB_STEP_SUMMARY"
+        # 1 and 3 only repeat what the scan steps already report (findings, a check that did not run); 2 is a real error.
+        [ "$code" = "2" ] && exit 2
+        exit 0
 
     - name: Stop the app
       # Always: a failed scan must not leave the app running (matters on self-hosted runners).

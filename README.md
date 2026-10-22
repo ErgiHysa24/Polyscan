@@ -67,6 +67,32 @@ Richiede Docker acceso (ZAP gira solo lì). Come funziona e cosa sapere:
   Come è protetto il segreto: non è mai sulla riga di comando (niente cronologia della shell, niente `ps`); finisce solo in un file di impostazioni nella cartella temporanea, cancellato dopo; se un programma lo stampasse, viene sostituito con `[hidden]` prima di arrivare a schermo o nei rapporti; il rapporto riporta solo una nota "AUTHENTICATED SCAN" con il nome dell'intestazione. Se la variabile manca o il valore non è ammesso, la scansione **non parte** (non ripiega in silenzio su una scansione anonima, che sembrerebbe pulita). Sono ammessi lettere, cifre e `. _ ~ + / = : ; spazio -`: virgole, apici, backslash e `#` sono rifiutati, perché hanno un significato speciale nel file di ZAP. Per un sito non tuo (con `--allow-remote`) serve `https`. **Usa un account di prova con meno permessi possibile**, mai un amministratore vero. Non gestisce login con form e JavaScript, solo token e cookie già pronti.
 - Una pagina costruita quasi tutta in JavaScript può essere navigata male dal crawler normale.
 
+## Valutazione del rischio (`polyscan risk`)
+
+Uno scanner dice "questa riga è pericolosa". Una valutazione del rischio risponde a un'altra domanda: **quanto conta per questa applicazione, e cosa faccio per primo?** `polyscan risk` legge uno o più rapporti JSON (di `scan` e `dast`) e produce un registro dei rischi con matrice 5×5, priorità, cosa fare e entro quando.
+
+```bash
+polyscan scan . --json scan.json
+polyscan dast http://localhost:8000 --json dast.json
+polyscan risk scan.json dast.json --exposure internet --data personal --html rischi.html --markdown rischi.md
+```
+
+Come si calcola (il rapporto lo riporta, e ogni rischio spiega i suoi due numeri):
+
+- **rischio = probabilità (1-5) × impatto (1-5)**, da 1 a 25: 1-5 basso, 6-12 medio, 13-19 alto, 20-25 critico.
+- **Probabilità**: parte dal tipo di problema (segreto 4, visibile sul sito 3, libreria con avviso pubblico 3, codice 3, configurazione 2); +1 se l'applicazione è raggiungibile da internet (`--exposure internet`), -1 se gira su una sola macchina (`local`), 0 in rete privata (`internal`).
+- **Impatto**: parte dalla gravità dello strumento (critica 5, alta 4, media 3, bassa 2, info 1); con dati personali o finanziari (`--data personal`) +1 **solo per problemi alti o critici** (una intestazione mancante non diventa un disastro perché il database ha dati di utenti), con dati pubblici (`public`) -1 per tutti.
+- Lo stesso problema in più punti è **un solo rischio** con l'elenco dei punti.
+- A ogni livello è associato un tempo di risposta **suggerito** (critico: subito, entro 24 ore; alto: 7 giorni; medio: 30 giorni; basso: prossimo rilascio): è una convenzione comune, adattala alla tua politica.
+
+Cose da sapere:
+
+- È un'**euristica trasparente, non una misura**: serve a ordinare il lavoro e a documentare il ragionamento. Se non sei d'accordo con un passaggio, i motivi di ogni punteggio sono nel rapporto (`why this score`). Le impostazioni predefinite (`internet`, `personal`) sono quelle prudenti.
+- **Le verifiche non eseguite compaiono nel registro.** Se nel rapporto di partenza uno strumento era in errore o mancava, il registro lo scrive in un riquadro di avviso (e `polyscan risk` esce con 3 se c'è un errore, o con `--strict` anche se uno strumento mancava): un registro senza rischi non vuol dire "sicuro" se i controlli non sono girati.
+- `--fail-on {low,medium,high,critical}` fa uscire con 1 se c'è un rischio di quel livello o più alto, per bloccare una pipeline.
+- Nell'action: `risk-assessment: "true"` (più `risk-exposure` e `risk-data`) scrive `polyscan-risk-report.html/.json` e il riepilogo nella pagina del job.
+- Il testo dei rapporti letti è trattato come non fidato (HTML con escape e CSP, ANSI tolti, Markdown neutralizzato), e un file che non è un rapporto polyscan viene rifiutato.
+
 ## Configurazione e storia git
 
 **Configurazione.** Un'applicazione con database di solito ha un `Dockerfile` e un `docker-compose.yml`, e gli errori lì sono pericolosi quanto quelli nel codice: un container `privileged`, il socket di Docker montato, la porta del database aperta a tutta la rete, un'immagine `latest` che cambia da sola.
@@ -174,6 +200,7 @@ Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action 
 | `auth-header-name`, `auth-header-value` | per le pagine dietro login: `Authorization` o `Cookie` e il suo valore (da un *secret*: `${{ secrets.NOME }}`) | `Authorization`, vuoto |
 | `allow-remote` | `"true"` per un bersaglio non locale (vedi sotto) | `false` |
 | `artifact-name` | nome del rapporto caricato; cambialo se l'action gira più volte nella stessa esecuzione | `polyscan-report` |
+| `risk-assessment`, `risk-exposure`, `risk-data` | scrive anche il registro dei rischi (vedi sopra) | `false`, `internet`, `personal` |
 | `fail-on`, `mode`, `strict` | soglia di fallimento, modalità, rigore | `high`, `auto`, `false` |
 
 Uscite: `exit-code` (codice), `dast-exit-code` (sito), `report-dir`.
@@ -243,7 +270,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.3)
 
-- **277 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **331 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
 - **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.
