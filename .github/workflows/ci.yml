@@ -154,6 +154,30 @@ jobs:
               print("::error title=dast-check::" + " | ".join(problems)[:1500])
               sys.exit(1)
           EOF2
+      - name: With a login, the page behind it is scanned too
+        env:
+          DEMO_TOKEN: Bearer demo-token-123
+        run: |
+          polyscan dast http://localhost:8000 --json auth.json --fail-on none --auth-header-env DEMO_TOKEN > auth.out 2>&1 || true
+          python - <<'EOF2'
+          import json, sys
+          def seen(path):
+              data = json.load(open(path))
+              return data, [(f["message"], f["file"]) for f in data["findings"] if "X-Powered-By" in f["message"]]
+          anon_data, anon = seen("zap-report.json")
+          auth_data, auth = seen("auth.json")
+          zap = next(t for t in auth_data["tools"] if t["name"] == "zap")
+          print(f"::notice title=auth-summary::zap={zap['status']} notes={[n[:40] for n in auth_data['notes']]} anon={anon} auth={auth} rules={sorted({f['message'] for f in auth_data['findings']})[:12]}")
+          problems = []
+          if zap["status"] != "ok": problems.append(f"zap: {zap}")
+          if anon: problems.append(f"anonymous scan saw the protected page: {anon}")
+          if not any(f.endswith("/admin") for _, f in auth): problems.append("authenticated scan did not reach /admin")
+          if not any("AUTHENTICATED" in n for n in auth_data["notes"]): problems.append("no AUTHENTICATED note")
+          blob = open("auth.json").read() + open("auth.out").read()
+          if "demo-token-123" in blob: problems.append("THE SECRET APPEARS IN THE OUTPUT")
+          if problems:
+              print("::error title=auth-check::" + " | ".join(problems)[:1500]); sys.exit(1)
+          EOF2
       - name: A site that does not answer is an error, never a clean result
         run: |
           set +e

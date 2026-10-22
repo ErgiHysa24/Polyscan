@@ -321,3 +321,89 @@ def test_an_empty_tool_list_means_no_tools_not_the_default_tools(dns):
 
     assert dast(classify_local(), "auto", tools=[]).tools == []
     assert scan(Path("."), "auto", tools=[]).tools == []
+
+
+# ----------------------------------------------------------------- authenticated scan
+
+from polyscan.tools import AUTH_FILE, check_auth, zap_auth_properties  # noqa: E402
+
+SECRET = "Bearer s3cr3t-T0KEN.abc"
+
+
+def test_the_secret_is_in_the_settings_file_never_on_the_command_line(tmp_path):
+    opts = ScanOptions(target_url="http://host.docker.internal:8000", auth_name="Authorization", auth_value=SECRET)
+    tool = Zap()
+    tool.prepare(tmp_path, opts)
+    text = (tmp_path / AUTH_FILE).read_text(encoding="utf-8")
+    assert "matchstr=Authorization" in text and f"replacement={SECRET}" in text
+    cmd = build_command(tool, "docker", "http://localhost:8000", opts, tmp_path, "n")
+    assert not any("s3cr3t" in part for part in cmd)
+    assert "-configfile /zap/wrk/" + AUTH_FILE in cmd[cmd.index("-z") + 1]
+
+
+def test_without_a_login_nothing_is_added(tmp_path):
+    tool = Zap()
+    tool.prepare(tmp_path, ScanOptions(target_url="http://x"))
+    assert not (tmp_path / AUTH_FILE).exists()
+    assert "-z" not in tool.docker_cmd(ScanOptions(target_url="http://x"))
+
+
+def test_the_secret_does_not_show_in_repr():
+    assert "s3cr3t" not in repr(ScanOptions(auth_name="Authorization", auth_value=SECRET))
+
+
+@pytest.mark.parametrize("name,value", [
+    ("Authorization", "Bearer a\nreplacer.full_list(1).enabled=true"),  # would add a second setting
+    ("Authorization", "a,b"), ("Authorization", "a\\b"), ("Authorization", 'a"b'), ("Authorization", "#x"),
+    ("Authorization", ""), ("Authorization", "x" * 5000),
+    ("X-Evil\nA", "v"), ("", "v"), ("Bad Name", "v"),
+])  # fmt: skip
+def test_unsafe_header_is_refused_without_repeating_it(name, value):
+    with pytest.raises(ValueError) as err:
+        check_auth(name, value)
+    assert value[:10] not in str(err.value) or value[:10].strip() == ""
+
+
+@pytest.mark.parametrize("value", ["Bearer eyJhbGciOi.J9.sig-_x", "session=abc123; csrf=x/y+z=="])
+def test_normal_tokens_and_cookies_are_accepted(value):
+    assert "replacement=" + value in zap_auth_properties("Cookie", value)
+
+
+def test_the_secret_is_removed_from_whatever_the_tool_prints(monkeypatch):
+    import subprocess
+
+    class P:
+        returncode = 3
+        stdout = f"debug {SECRET}"
+        stderr = f"bad header {SECRET}"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: P())
+    opts = ScanOptions(target_url="http://x", auth_name="Authorization", auth_value=SECRET)
+    result = run_tool(Zap(), "docker", "http://localhost:8000", opts, 10)
+    assert result.status == ERROR and "s3cr3t" not in result.detail and "[hidden]" in result.detail
+
+
+def test_cli_refuses_when_the_variable_is_missing_or_bad(monkeypatch, capsys, dns):
+    monkeypatch.delenv("MY_TOKEN", raising=False)
+    assert cli.main(["dast", "http://localhost:8000", "--auth-header-env", "MY_TOKEN"]) == 2
+    monkeypatch.setenv("MY_TOKEN", "bad,value")
+    assert cli.main(["dast", "http://localhost:8000", "--auth-header-env", "MY_TOKEN"]) == 2
+    assert "bad,value" not in capsys.readouterr().err
+
+
+def test_cli_needs_https_for_a_remote_site_with_a_login(monkeypatch, capsys, dns):
+    monkeypatch.setenv("MY_TOKEN", "Bearer abc")
+    code = cli.main(["dast", "http://shop.example.com/", "--allow-remote", "--auth-header-env", "MY_TOKEN"])
+    assert code == 2 and "https" in capsys.readouterr().err
+
+
+def test_the_report_says_it_was_an_authenticated_scan(monkeypatch):
+    from polyscan import scanner
+    from polyscan.target import classify as c
+
+    monkeypatch.setattr(scanner, "run_tool", lambda *a, **k: scanner.ToolResult("zap", OK, "via docker"))
+    monkeypatch.setattr(scanner, "choose_how", lambda t, m: ("docker", ""))
+    opts = ScanOptions(auth_name="Authorization", auth_value=SECRET)
+    result = scanner.dast(c("http://127.0.0.1:8000"), "docker", opts)
+    assert any("AUTHENTICATED" in n for n in result.notes)
+    assert "s3cr3t" not in to_json(result) and "s3cr3t" not in to_html(result)

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
+from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import __version__
 from .models import Severity
 from .report import to_html, to_json, to_markdown, to_terminal
 from .scanner import MODES, dast, scan
 from .target import TargetError, classify
-from .tools import ScanOptions, all_tools, pinned_version, site_tools
+from .tools import ScanOptions, all_tools, check_auth, pinned_version, site_tools
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -60,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="scan a site that is NOT on your own machine or network. Use it only if you own "
                         "the site or have written authorization to test it")  # fmt: skip
     d.add_argument("--minutes", type=int, default=1, help="minutes the crawler may run, 1 to 30 (default: 1)")
+    d.add_argument("--auth-header-env", metavar="VAR",
+                   help="name of an ENVIRONMENT VARIABLE holding the value of a header added to every request "
+                        "(for example 'Bearer <token>' or 'session=<cookie>'), to scan the pages behind a login. "
+                        "The value is never taken from the command line, so it stays out of shell history")  # fmt: skip
+    d.add_argument("--auth-header-name", default="Authorization", metavar="NAME",
+                   help="header used with --auth-header-env: Authorization (default) or Cookie")
     d.add_argument("--mode", choices=MODES, default="auto", help="ZAP runs only in Docker")
     d.add_argument("--html", metavar="FILE", help="write an HTML report")
     d.add_argument("--json", metavar="FILE", help="write a JSON report")
@@ -156,7 +165,21 @@ def cmd_dast(args) -> int:
     if not 1 <= args.minutes <= 30:
         print("error: --minutes must be between 1 and 30", file=sys.stderr)
         return EXIT_USAGE
-    result = dast(target, args.mode, ScanOptions(zap_minutes=args.minutes), args.timeout)
+    opts = ScanOptions(zap_minutes=args.minutes)
+    if args.auth_header_env:
+        value = os.environ.get(args.auth_header_env, "")
+        try:
+            check_auth(args.auth_header_name, value)
+        except ValueError as exc:
+            # Never fall back to an unauthenticated scan: it would look like a clean result for the protected pages.
+            print(f"error: --auth-header-env {args.auth_header_env}: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        if not target.local and urlsplit(args.url).scheme != "https":
+            print("error: with a login header, a site that is not on your own network must use https "
+                  "(otherwise the secret travels in clear text)", file=sys.stderr)
+            return EXIT_USAGE
+        opts = replace(opts, auth_name=args.auth_header_name, auth_value=value)
+    result = dast(target, args.mode, opts, args.timeout)
     return _finish(args, result)
 
 

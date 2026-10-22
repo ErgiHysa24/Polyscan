@@ -16,7 +16,7 @@ HOME = b"""<!doctype html>
 <html><head><title>Demo shop</title></head>
 <body>
   <h1>Demo shop</h1>
-  <p><a href="/login">Log in</a> | <a href="/search?q=shoes">Search</a> | <a href="/about">About</a></p>
+  <p><a href="/login">Log in</a> | <a href="/search?q=shoes">Search</a> | <a href="/about">About</a> | <a href="/admin">Admin</a></p>
   <script src="/static/app.js"></script>
 </body></html>
 """
@@ -35,12 +35,16 @@ LOGIN = b"""<!doctype html>
 """
 
 ABOUT = b"<!doctype html><html><head><title>About</title></head><body><h1>About</h1><p><a href=\"/\">Home</a></p></body></html>\n"
+ADMIN = b"<!doctype html><html><head><title>Admin</title></head><body><h1>Admin</h1><p><a href=\"/\">Home</a></p></body></html>\n"
+DEMO_TOKEN = "Bearer demo-token-123"  # a fake credential for the demo; real ones never go in code
 JS = b"console.log('demo');\n"
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, body: bytes, content_type: str = "text/html; charset=utf-8", cookie: bool = False):
+    def _send(self, body: bytes, content_type: str = "text/html; charset=utf-8", cookie: bool = False, powered: bool = False):
         self.send_response(200)
+        if powered:
+            self.send_header("X-Powered-By", "PHP/5.6.40")  # leaks the technology: only the logged-in page shows it
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         if cookie:
@@ -58,6 +62,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(b"<!doctype html><html><head><title>Search</title></head><body><p>No results.</p><a href=\"/\">Home</a></body></html>\n")
         elif path == "/about":
             self._send(ABOUT)
+        elif path == "/admin":
+            # Only with the right header: this is the "page behind a login" that an anonymous scan cannot see.
+            if self.headers.get("Authorization") == DEMO_TOKEN:
+                self._send(ADMIN, powered=True)
+            else:
+                self.send_error(401)
         elif path == "/static/app.js":
             self._send(JS, "application/javascript")
         else:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -337,6 +338,9 @@ class Tool:
         """Extra `docker run` options (before the image name)."""
         return []
 
+    def prepare(self, workdir: Path, opts: "ScanOptions") -> None:
+        """Write extra input files into the throw-away folder before the run."""
+
     def wanted(self, opts: "ScanOptions") -> bool:
         """False for tools that run only when asked for (silently left out otherwise)."""
         return True
@@ -359,6 +363,8 @@ class ScanOptions:
     history: bool = False  # also look for secrets in old commits
     target_url: str = ""  # live-site scans: the URL as the tool will see it
     zap_minutes: int = 1  # live-site scans: minutes the spider may run
+    auth_name: str = ""  # live-site scans: header added to every request (Authorization, Cookie...)
+    auth_value: str = field(default="", repr=False)  # its value: a SECRET, so never in repr() or logs
 
 
 class Semgrep(Tool):
@@ -504,6 +510,39 @@ class Checkov(Tool):
         return self._args(CONTAINER_ROOT)
 
 
+AUTH_NAME_OK = re.compile(r"[A-Za-z0-9-]{1,64}")
+# Deliberately narrow: enough for "Bearer <token>", JWTs and "name=value; name2=value2" cookies.
+# Characters with a special meaning in the ZAP settings file (comma, backslash, quotes, #, newline)
+# are refused instead of escaped: a rule I cannot be sure of is a rule that may leak or break.
+AUTH_VALUE_OK = re.compile(r"[A-Za-z0-9._~+/=:; -]{1,4096}")
+AUTH_FILE = "zap-auth.properties"
+
+
+def check_auth(name: str, value: str) -> None:
+    """Raise ValueError (without ever repeating the value) if the header cannot be used safely."""
+    if not AUTH_NAME_OK.fullmatch(name):
+        raise ValueError("the header name may contain only letters, digits and '-' (max 64)")
+    if not AUTH_VALUE_OK.fullmatch(value):
+        raise ValueError(
+            "the header value is empty, longer than 4096 characters, or contains a character that is "
+            "not allowed (allowed: letters, digits and . _ ~ + / = : ; space and -)"
+        )
+
+
+def zap_auth_properties(name: str, value: str) -> str:
+    """ZAP settings that add one header to every request (the 'replacer' add-on)."""
+    check_auth(name, value)
+    return "\n".join([
+        "replacer.full_list(0).description=polyscan-auth",
+        "replacer.full_list(0).enabled=true",
+        "replacer.full_list(0).matchtype=REQ_HEADER",
+        f"replacer.full_list(0).matchstr={name}",
+        "replacer.full_list(0).regex=false",
+        f"replacer.full_list(0).replacement={value}",
+        "",
+    ])  # fmt: skip
+
+
 class Zap(Tool):
     """OWASP ZAP baseline: browses a running site and checks what it answers.
 
@@ -529,7 +568,17 @@ class Zap(Tool):
     def docker_cmd(self, opts):
         if not opts.target_url:
             raise ValueError("no target URL")
-        return ["zap-baseline.py", "-t", opts.target_url, "-J", self.report_file, "-m", str(opts.zap_minutes)]
+        cmd = ["zap-baseline.py", "-t", opts.target_url, "-J", self.report_file, "-m", str(opts.zap_minutes)]
+        if opts.auth_value:
+            # Only the PATH of the settings file is on the command line; the secret is inside the file.
+            cmd += ["-z", f"-configfile {self.workdir}/{AUTH_FILE}"]
+        return cmd
+
+    def prepare(self, workdir, opts):
+        if opts.auth_value:
+            path = Path(workdir) / AUTH_FILE
+            path.write_text(zap_auth_properties(opts.auth_name, opts.auth_value), encoding="utf-8")
+            path.chmod(0o644)  # the container's user must read it; the folder is private and deleted afterwards
 
 
 def site_tools() -> list[Tool]:

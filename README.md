@@ -54,7 +54,16 @@ Richiede Docker acceso (ZAP gira solo lì). Come funziona e cosa sapere:
 - **Un sito che non risponde è un errore**, non un sito pulito: ZAP in quel caso esce con codice 3 senza rapporto, e polyscan lo segnala come controllo fallito (uscita 3).
 - **`localhost` dentro un container è il container stesso.** polyscan dà quindi a ZAP l'indirizzo `host.docker.internal`, che punta al tuo computer, e nel rapporto rimette quello che hai scritto tu. Su Linux il tuo sito deve ascoltare su `0.0.0.0` (non solo `127.0.0.1`); un sito che accetta solo certi nomi (`ALLOWED_HOSTS`, `SERVER_NAME`) può rifiutare quel nome.
 - Il rapporto di ZAP passa da una **cartella temporanea** creata da polyscan e cancellata dopo: è l'unico punto scrivibile, il tuo progetto non viene mai montato. Se la scansione supera il tempo, il container viene fermato.
-- Un sito dietro login si vede solo nelle pagine pubbliche (l'autenticazione non è ancora gestita); una pagina costruita quasi tutta in JavaScript può essere navigata male dal crawler normale.
+- **Pagine dietro un login.** Senza credenziali ZAP vede solo le pagine pubbliche. Con `--auth-header-env` aggiunge un'intestazione a ogni richiesta (token `Bearer` o cookie di sessione):
+
+  ```bash
+  export MIO_TOKEN="Bearer eyJhbGciOi..."          # il VALORE sta in una variabile, non nel comando
+  polyscan dast http://localhost:8000 --auth-header-env MIO_TOKEN
+  polyscan dast http://localhost:8000 --auth-header-env MIO_COOKIE --auth-header-name Cookie
+  ```
+
+  Come è protetto il segreto: non è mai sulla riga di comando (niente cronologia della shell, niente `ps`); finisce solo in un file di impostazioni nella cartella temporanea, cancellato dopo; se un programma lo stampasse, viene sostituito con `[hidden]` prima di arrivare a schermo o nei rapporti; il rapporto riporta solo una nota "AUTHENTICATED SCAN" con il nome dell'intestazione. Se la variabile manca o il valore non è ammesso, la scansione **non parte** (non ripiega in silenzio su una scansione anonima, che sembrerebbe pulita). Sono ammessi lettere, cifre e `. _ ~ + / = : ; spazio -`: virgole, apici, backslash e `#` sono rifiutati, perché hanno un significato speciale nel file di ZAP. Per un sito non tuo (con `--allow-remote`) serve `https`. **Usa un account di prova con meno permessi possibile**, mai un amministratore vero. Non gestisce login con form e JavaScript, solo token e cookie già pronti.
+- Una pagina costruita quasi tutta in JavaScript può essere navigata male dal crawler normale.
 
 ## Configurazione e storia git
 
@@ -160,6 +169,7 @@ Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action 
 | `stop-command` | comando che la ferma; gira sempre | vuoto |
 | `wait-timeout` | secondi di attesa perché l'app risponda | `60` |
 | `zap-minutes` | minuti di esplorazione di ZAP (1-30) | `1` |
+| `auth-header-name`, `auth-header-value` | per le pagine dietro login: `Authorization` o `Cookie` e il suo valore (da un *secret*: `${{ secrets.NOME }}`) | `Authorization`, vuoto |
 | `allow-remote` | `"true"` per un bersaglio non locale (vedi sotto) | `false` |
 | `artifact-name` | nome del rapporto caricato; cambialo se l'action gira più volte nella stessa esecuzione | `polyscan-report` |
 | `fail-on`, `mode`, `strict` | soglia di fallimento, modalità, rigore | `high`, `auto`, `false` |
@@ -230,7 +240,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.3)
 
-- **225 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **244 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
 - **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.

@@ -42,6 +42,14 @@ inputs:
   zap-minutes:
     description: Minutes the ZAP crawler may run, 1 to 30.
     default: "1"
+  auth-header-name:
+    description: Header that carries the login, for pages behind a login. Authorization (default) or Cookie.
+    default: Authorization
+  auth-header-value:
+    description: >-
+      Value of that header, for example "Bearer <token>". Pass it from a secret: ${{ secrets.NAME }}.
+      Use a TEST account with the least privileges, never a real administrator.
+    default: ""
   allow-remote:
     description: >-
       "true" to scan a target that is NOT on the runner or a private network. Say true only if you own it or have
@@ -185,6 +193,8 @@ runs:
         INPUT_STRICT: ${{ inputs.strict }}
         INPUT_ZAP_MINUTES: ${{ inputs.zap-minutes }}
         INPUT_ALLOW_REMOTE: ${{ inputs.allow-remote }}
+        INPUT_AUTH_NAME: ${{ inputs.auth-header-name }}
+        INPUT_AUTH_VALUE: ${{ inputs.auth-header-value }}
         REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
       run: |
         args=(dast "$INPUT_TARGET" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON" --minutes "$INPUT_ZAP_MINUTES"
@@ -193,6 +203,8 @@ runs:
               --markdown "$REPORT_DIR/polyscan-dast-summary.md")
         [ "$INPUT_STRICT" = "true" ] && args+=(--strict)
         [ "$INPUT_ALLOW_REMOTE" = "true" ] && args+=(--allow-remote)
+        # The VALUE is read from the environment variable by polyscan itself; it is never put on a command line.
+        [ -n "$INPUT_AUTH_VALUE" ] && args+=(--auth-header-env INPUT_AUTH_VALUE --auth-header-name "$INPUT_AUTH_NAME")
         set +e
         polyscan "${args[@]}"
         code=$?

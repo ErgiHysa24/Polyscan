@@ -146,6 +146,13 @@ def _stop_container(name: str) -> None:
         pass
 
 
+def _hide(text: str, opts: ScanOptions) -> str:
+    """Whatever a tool prints, the secret header value never reaches a report or the screen."""
+    if opts.auth_value and text:
+        return text.replace(opts.auth_value, "[hidden]")
+    return text
+
+
 def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout: int) -> ToolResult:
     started = time.monotonic()
     name = f"polyscan-{tool.name}-{secrets.token_hex(4)}" if how == "docker" else None
@@ -154,6 +161,11 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
         if tool.report_file and how == "docker":
             workdir = Path(tmp)
             workdir.chmod(0o777)  # the container's user is not ours; this folder holds only the report
+        if workdir is not None:
+            try:
+                tool.prepare(workdir, opts)
+            except (OSError, ValueError) as exc:
+                return ToolResult(tool.name, ERROR, f"could not prepare the run: {exc}", seconds=time.monotonic() - started)
         cmd = build_command(tool, how, root, opts, workdir, name)
         try:
             proc = subprocess.run(
@@ -173,6 +185,7 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
         except OSError as exc:
             return ToolResult(tool.name, ERROR, f"could not start: {exc}", seconds=time.monotonic() - started)
 
+        proc.stdout, proc.stderr = _hide(proc.stdout, opts), _hide(proc.stderr, opts)
         output = proc.stdout
         if tool.report_file and proc.returncode in tool.ok_codes:
             # The tool wrote its report to a file. A missing file is a failure, never "no findings".
@@ -181,6 +194,7 @@ def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout:
                 output = report.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 output = ""
+            output = _hide(output, opts)
             if not output.strip():
                 return ToolResult(
                     tool.name, ERROR,
@@ -269,6 +283,12 @@ def dast(
             "REMOTE TARGET: this site is not on your own machine or network. It was scanned because "
             "--allow-remote was given, which means you stated that you own it or have written "
             "authorization to test it."
+        )
+    if opts.auth_value:
+        result.notes.append(
+            f"AUTHENTICATED SCAN: the header '{opts.auth_name}' (value hidden) was added to every request, "
+            "so pages behind the login were visible to the scan. Use a test account with the least "
+            "privileges possible, never a real administrator."
         )
     for tool in site_tools() if tools is None else tools:
         how, reason = choose_how(tool, mode)
