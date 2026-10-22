@@ -149,6 +149,21 @@ Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da c
 
 Limiti: il digest garantisce che l'immagine non cambi, non che sia priva di difetti; le dipendenze di sviluppo (pytest) e quelle indirette dei pacchetti pip non sono bloccate con hash.
 
+## Uso responsabile e autorizzazione
+
+Gli strumenti di oggi leggono **file sul tuo computer**: non contattano nessun sito. Qualsiasi controllo che invii richieste a un sito o a un server in esecuzione (come OWASP ZAP, quando sarà aggiunto) è un'altra cosa.
+
+**Scansiona solo ciò che è tuo, o per cui hai un'autorizzazione esplicita.**
+
+- **`localhost` e indirizzi della tua rete privata** (la tua macchina, i tuoi container, un ambiente di prova tuo): puoi procedere.
+- **Qualsiasi altro sito o server**: scansiona *solo* se sei il proprietario o se hai ottenuto prima un'autorizzazione **scritta** da chi ne è responsabile, che indichi quali indirizzi, quali tipi di prova e in quale periodo. Un sito pubblico, un sito di un cliente, di un amico, di un datore di lavoro o di un'università **non è un bersaglio di prova**.
+- **Anche un sito in hosting tuo** può avere regole del fornitore (hosting, cloud, CDN) sulle scansioni di sicurezza: controllale prima.
+- **La scansione attiva è più pericolosa di quella passiva**: invia richieste malevole e può modificare o cancellare dati, riempire i log o rendere il servizio lento o non disponibile. Falla solo su un ambiente di prova con un database di prova, mai in produzione e mai con dati reali.
+
+Scansionare sistemi altrui senza permesso può essere illegale. In Italia, per esempio, può rientrare nel reato di accesso abusivo a un sistema informatico (art. 615-ter del codice penale), e altri paesi hanno norme simili; "volevo solo provare" o "l'ho trovato aperto" non è una giustificazione. Questo testo non è un parere legale: se hai dubbi, chiedi a chi è responsabile del sistema o a un legale.
+
+Il comando per scansionare siti in esecuzione (non ancora presente) dovrà rispettare queste regole: di default accetterà solo `localhost` e indirizzi privati, chiederà un'opzione esplicita per qualsiasi altro indirizzo, e un'altra ancora per la scansione attiva, con l'avviso sopra.
+
 ## Aggiungere uno strumento
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
