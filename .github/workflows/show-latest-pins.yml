@@ -39,3 +39,4 @@ jobs:
           check zricethezav/gitleaks:latest version
           check ghcr.io/google/osv-scanner:latest --version
           check bridgecrew/checkov:latest --version
+          check ghcr.io/zaproxy/zaproxy:stable zap.sh -version
