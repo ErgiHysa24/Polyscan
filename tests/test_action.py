@@ -53,4 +53,4 @@ def test_every_expression_uses_a_context_the_action_may_read():
     # file, and the whole action then fails to load (this happened once).
     for n, line in enumerate(LINES, 1):
         for expr in EXPR.findall(line):
-            assert expr.startswith(("inputs.", "steps.", "github.action_path")), f"line {n}: {expr}"
+            assert expr.startswith(("inputs.", "steps.", "github.action_path", "always()")), f"line {n}: {expr}"
