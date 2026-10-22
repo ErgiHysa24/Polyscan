@@ -131,10 +131,11 @@ jobs:
       - name: ZAP ran and found the planted weaknesses
         run: |
           python - <<'EOF2'
-          import json, sys
+          import json, re, sys
           data = json.load(open("zap-report.json"))
           zap = next(t for t in data["tools"] if t["name"] == "zap")
-          rules = sorted({f["message"].split(" (")[0] for f in data["findings"]})
+          # drop only the "(12 URLs)" suffix: names such as "... Policy (CSP) Header ..." contain parentheses too
+          rules = sorted({re.sub(r" \(\d+ URLs\)$", "", f["message"]) for f in data["findings"]})
           files = sorted({f["file"] for f in data["findings"]})
           # The summary goes to an annotation too, so a failure can be understood without the full log.
           print(f"::notice title=dast-summary::kind={data['kind']} notes={data['notes']} zap={zap['status']} {zap['detail'][:200]} rules={rules} files={files[:6]}")
