@@ -2,7 +2,10 @@
 # everything polyscan pins, so that an update can be reviewed by a person.
 # It changes nothing. Start it from the Actions tab ("Run workflow").
 name: show-latest-pins
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/show-latest-pins.yml]  # also runs when this file changes, so a new tool can be added without a click
 permissions:
   contents: read
 jobs:
@@ -40,3 +43,4 @@ jobs:
           check ghcr.io/google/osv-scanner:latest --version
           check bridgecrew/checkov:latest --version
           check ghcr.io/zaproxy/zaproxy:stable zap.sh -version
+          check ghcr.io/aquasecurity/trivy:latest --version
