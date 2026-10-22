@@ -1,0 +1,41 @@
+# Manual workflow: shows the newest stable version, commit and image digest of
+# everything polyscan pins, so that an update can be reviewed by a person.
+# It changes nothing. Start it from the Actions tab ("Run workflow").
+name: show-latest-pins
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Latest stable tag and commit of each action
+        run: |
+          echo "### GitHub Actions" >> "$GITHUB_STEP_SUMMARY"
+          for repo in actions/checkout actions/setup-python actions/upload-artifact; do
+            tag=$(git ls-remote --tags "https://github.com/$repo" 'refs/tags/v*' \
+              | awk '{print $2}' | sed 's/\^{}$//' | sort -u \
+              | grep -E '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's#refs/tags/##' | sort -V | tail -1)
+            sha=$(git ls-remote "https://github.com/$repo" "refs/tags/$tag^{}" | awk '{print $1}')
+            [ -z "$sha" ] && sha=$(git ls-remote "https://github.com/$repo" "refs/tags/$tag" | awk '{print $1}')
+            echo "::notice title=action::$repo $tag $sha"
+            echo "- \`$repo@$sha # $tag\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Version and digest of each image
+        run: |
+          echo "### Docker images" >> "$GITHUB_STEP_SUMMARY"
+          check() {  # image, then the command that prints its version
+            img="$1"; shift
+            docker pull -q "$img" >/dev/null
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$img")
+            version=$(docker run --rm "$img" "$@" 2>&1 | head -3 | tr '\n' ' ')
+            echo "::notice title=image::$img | $digest | $version"
+            echo "- \`$digest\` — $version" >> "$GITHUB_STEP_SUMMARY"
+          }
+          check semgrep/semgrep:latest semgrep --version
+          check zricethezav/gitleaks:latest version
+          check ghcr.io/google/osv-scanner:latest --version
+          check bridgecrew/checkov:latest --version

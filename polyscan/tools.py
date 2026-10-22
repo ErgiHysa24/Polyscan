@@ -17,6 +17,34 @@ from .models import Finding, Severity
 
 CONTAINER_ROOT = "/src"
 
+# Docker images are pinned by DIGEST, not by tag. A tag such as `latest` can be
+# moved by whoever controls the registry account (this is how the Trivy and KICS
+# compromises reached their users); a digest is a hash of the image content, so
+# a changed image simply fails to start. The version is kept next to it for
+# humans and for `polyscan doctor`. To update: run the "show-latest-pins"
+# workflow, read the new version and digest, review the release notes, change
+# the line, and let the CI prove that the scanners still work.
+IMAGES = {
+    "semgrep": ("semgrep/semgrep", "1.181.1", "sha256:3db5c7af55eb1f512eac0abf0ab69a97b52c74b5e9a27314c221aee1a78d7ab2"),
+    "gitleaks": ("zricethezav/gitleaks", "8.30.1", "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"),
+    "osv-scanner": ("ghcr.io/google/osv-scanner", "2.7.0", "sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0"),
+    "checkov": ("bridgecrew/checkov", "3.3.30", "sha256:4b65e89f1fde292249fc0aa0d0db43302c036dfe39f7370b2d3517571082b894"),
+}  # fmt: skip
+
+
+def pinned_version(ref: str | None) -> str:
+    """Human version of a pinned image reference, or "" if it is not one of ours."""
+    for name, version, digest in IMAGES.values():
+        if ref == f"{name}@{digest}":
+            return version
+    return ""
+
+
+def image_ref(key: str) -> str:
+    """The pinned reference to hand to `docker run`: name@sha256:..."""
+    name, _version, digest = IMAGES[key]
+    return f"{name}@{digest}"
+
 
 def rel_path(path: str, root: str) -> str:
     """Make a path from tool output relative to the scanned folder."""
@@ -286,7 +314,7 @@ class Semgrep(Tool):
         super().__init__(
             "semgrep",
             "semgrep",
-            "semgrep/semgrep",
+            image_ref("semgrep"),
             parse_semgrep,
             languages=frozenset(EXTENSIONS.values()) | {"docker"},  # "docker": the Compose rules
             reports_errors=True,
@@ -320,7 +348,7 @@ class Gitleaks(Tool):
 
     def __init__(self, name: str = "gitleaks"):
         super().__init__(
-            name, "gitleaks", "zricethezav/gitleaks:latest", parse_gitleaks, ok_codes=(0,)
+            name, "gitleaks", image_ref("gitleaks"), parse_gitleaks, ok_codes=(0,)
         )  # fmt: skip
 
     def _args(self, target: str) -> list[str]:
@@ -365,7 +393,7 @@ class OsvScanner(Tool):
         super().__init__(
             "osv-scanner",
             "osv-scanner",
-            "ghcr.io/google/osv-scanner:latest",
+            image_ref("osv-scanner"),
             parse_osv,
             skip_codes={128: "no dependency files (lockfiles) found"},
         )
@@ -406,7 +434,7 @@ class Checkov(Tool):
 
     def __init__(self):
         super().__init__(
-            "checkov", "checkov", "bridgecrew/checkov", parse_checkov,
+            "checkov", "checkov", image_ref("checkov"), parse_checkov,
             languages=frozenset({"docker", "terraform"}), reports_errors=True,
         )  # fmt: skip
 

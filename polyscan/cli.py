@@ -11,7 +11,7 @@ from . import __version__
 from .models import Severity
 from .report import to_html, to_json, to_markdown, to_terminal
 from .scanner import MODES, scan
-from .tools import ScanOptions, all_tools
+from .tools import ScanOptions, all_tools, pinned_version
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -57,11 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
 def cmd_doctor() -> int:
     print(f"polyscan {__version__}")
     docker = shutil.which("docker")
-    print(f"  docker       {'found' if docker else 'not found'}")
+    print(f"  {'docker':<16} {'found' if docker else 'not found'}")
     for t in all_tools():
         local = shutil.which(t.binary)
         note = "found" if local else ("not found; will use Docker" if t.image and docker else "not found")
-        print(f"  {t.name:<12} {note}")
+        version = pinned_version(t.image)
+        pinned = f"  (Docker image pinned: {version})" if version else ""
+        print(f"  {t.name:<16} {note}{pinned}")
     print("\nThe 'found' state of Docker does not prove the Docker service is running.")
     return EXIT_OK
 

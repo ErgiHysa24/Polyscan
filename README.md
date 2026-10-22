@@ -131,6 +131,23 @@ on:
 - I segreti trovati non compaiono mai nei rapporti (né quelli di Gitleaks né le password che cita Bandit).
 - Il testo che arriva dal codice scansionato è trattato come non fidato: nell'HTML passa dall'escape e la pagina vieta gli script; nel terminale i caratteri di controllo vengono tolti; nel Markdown viene neutralizzato.
 - Niente telemetria: Semgrep parte con `--metrics=off --disable-version-check`.
+- **Versioni bloccate** (vedi sotto): tutto ciò che viene scaricato ed eseguito è fissato a qualcosa che non può cambiare di nascosto.
+
+### Versioni bloccate
+
+Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da chi controlla l'account: è così che gli attacchi alla catena di fornitura (come quelli a Trivy e KICS) raggiungono chi li usa. Un *digest* o un *commit* identifica invece il contenuto stesso: se cambia, non parte.
+
+| Cosa | Come è fissato | Dove |
+|---|---|---|
+| Immagini Docker (Semgrep, Gitleaks, OSV-Scanner, Checkov) | digest `sha256`, con la versione accanto | `IMAGES` in `polyscan/tools.py` |
+| GitHub Actions (checkout, setup-python, upload-artifact) | hash del commit, con `# vX.Y.Z` in commento | `ci.yml`, `action.yml` |
+| Semgrep nella CI, Bandit nell'action | versione esatta (`==`) | `ci.yml`, `action.yml` |
+
+`tests/test_pins.py` fa fallire la CI se qualcuno aggiunge un'immagine `latest`, un'Action con `@v4` o un `pip install` senza versione. `polyscan doctor` mostra la versione di ogni immagine.
+
+**Aggiornare** (a mano, di proposito): avvia il workflow *show-latest-pins* dalla scheda Actions di GitHub, che mostra le ultime versioni stabili con commit e digest; leggi le note di rilascio; cambia le righe; la CI dimostra che gli strumenti funzionano ancora. Dependabot propone da solo gli aggiornamenti delle Actions, aspettando 7 giorni dopo ogni rilascio, perché le versioni compromesse di solito si scoprono presto.
+
+Limiti: il digest garantisce che l'immagine non cambi, non che sia priva di difetti; le dipendenze di sviluppo (pytest) e quelle indirette dei pacchetti pip non sono bloccate con hash.
 
 ## Aggiungere uno strumento
 
@@ -138,7 +155,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.2)
 
-- **115 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **131 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (job `demo-scan`, dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner. Il job fallisce se uno strumento non gira o non trova nulla nei progetti demo.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.

@@ -1,0 +1,12 @@
+# Opens a pull request when a pinned GitHub Action has a new release. The commit
+# hash and the "# v1.2.3" comment are updated together; review before merging.
+# (Docker image digests in polyscan/tools.py are not visible to Dependabot: they
+# are updated by hand, see the comment above IMAGES.)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7  # wait a week after a release: compromised releases are usually noticed quickly
