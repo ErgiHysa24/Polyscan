@@ -31,7 +31,7 @@ jobs:
   # The built-in SQL injection rules are tested with the real Semgrep: every
   # "ruleid" example must be found and every "ok" example must stay quiet.
   sql-rules:
-    name: Built-in rules (SQL, Docker Compose)
+    name: Built-in rules (SQL, Compose, Dockerfile)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]" semgrep
-      - run: python -m pytest -v tests/test_sql_rules.py tests/test_compose_rules.py
+      - run: python -m pytest -v tests/test_sql_rules.py tests/test_config_rules.py
 
   # polyscan scans its own code and its whole git history. The examples contain
   # deliberate problems and the test fixtures contain saved scanner output, so

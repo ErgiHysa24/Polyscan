@@ -270,14 +270,14 @@ class Tool:
 
 RULES_DIR = Path(__file__).parent / "rules"
 RULES_IN_CONTAINER = "/rules"
-BUILTIN_RULE_FILES = ("sql-injection.yml", "docker-compose.yml")
+BUILTIN_RULE_FILES = ("sql-injection.yml", "docker-compose.yml", "dockerfile.yml")
 
 
 @dataclass
 class ScanOptions:
     semgrep_configs: tuple[str, ...] = ("p/security-audit", "p/owasp-top-ten")
     excludes: tuple[str, ...] = ()
-    builtin_rules: bool = True  # polyscan's own rules (SQL injection, Docker Compose)
+    builtin_rules: bool = True  # polyscan's own rules (SQL, Compose, Dockerfile)
     history: bool = False  # also look for secrets in old commits
 
 

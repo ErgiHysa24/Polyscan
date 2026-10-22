@@ -16,6 +16,7 @@ polyscan scan . --html report.html
 | Segreti nei vecchi commit (con `--history`) | Gitleaks, modalità `git` | qualsiasi | Docker o installato |
 | Configurazione sbagliata: Dockerfile, Kubernetes, Terraform, workflow GitHub | [Checkov](https://www.checkov.io) | file di configurazione | Docker o installato |
 | Configurazione sbagliata: `docker-compose.yml` | Semgrep, con `polyscan/rules/docker-compose.yml` | Compose | come Semgrep |
+| Configurazione sbagliata: `Dockerfile` (regole proprie) | Semgrep, con `polyscan/rules/dockerfile.yml` | Docker | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
@@ -41,6 +42,7 @@ Limiti: il seguire il valore funziona **dentro una funzione**; se la query viene
 
 **Configurazione.** Un'applicazione con database di solito ha un `Dockerfile` e un `docker-compose.yml`, e gli errori lì sono pericolosi quanto quelli nel codice: un container `privileged`, il socket di Docker montato, la porta del database aperta a tutta la rete, un'immagine `latest` che cambia da sola.
 - **Checkov** controlla i `Dockerfile` (utente root, `ADD` al posto di `COPY`, tag `latest`, nessun `HEALTHCHECK`, porta 22), i manifest Kubernetes, Terraform e i workflow di GitHub. Parte da solo se trova questi file. Nella versione gratuita non dà una gravità: tutto è segnato "media".
+- **Dockerfile, regole proprie.** Servono per poter controllare la parte Docker anche senza Checkov e per poterle leggere e modificare. Cercano: immagine di base `latest` o senza versione (gli stadi `FROM build` di un multi-stage non contano), container che gira come root, `ADD` al posto di `COPY`, porta 22, password o token in `ENV`/`ARG` (restano in `docker history`), `curl ... | sh`, `chmod 777`. Provate con esempi in `tests/dockerfile/`. Alcune segnalazioni compaiono due volte, una per Checkov e una per queste regole; password in `ENV`, `curl | sh` e `chmod 777` le vedono solo le regole proprie.
 - **Docker Compose** non ha controlli in Checkov, quindi polyscan ha regole proprie per Semgrep: `privileged: true`, `network_mode: host`, socket di Docker, porte di database pubblicate (`3306`, `5432`, `27017`, `6379`...), password scritte nel file (anche nella forma `- CHIAVE=valore`; le variabili `${...}` e le `*_FILE` sono accettate), immagini non fissate. Sono provate con esempi in `tests/compose/`.
 
 **Storia git.** Una chiave cancellata con un commit resta leggibile a chi può leggere il repository. Con `--history` Gitleaks guarda anche tutti i vecchi commit e il rapporto indica il commit (solo le prime 8 cifre dell'hash: autore ed e-mail non vengono mai mostrati). Una chiave trovata così va considerata **compromessa e sostituita**: toglierla dal codice non basta. Richiede la cartella radice del repository con la storia completa: se manca `.git`, o il clone è parziale (`git clone --depth`, o `actions/checkout` senza `fetch-depth: 0`), il controllo risulta "non eseguito" invece di sembrare pulito.
@@ -136,7 +138,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.2)
 
-- **111 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **115 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (job `demo-scan`, dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner. Il job fallisce se uno strumento non gira o non trova nulla nei progetti demo.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.
@@ -147,6 +149,6 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.
 - Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, `cargo audit`, `npm audit`) non sono ancora inclusi.
 - Checkov parte solo se trova un `Dockerfile`, un file Compose o un `.tf`: un progetto con soli manifest Kubernetes non viene controllato.
-- Le regole Compose leggono righe singole: non seguono `extends`, le variabili di un file `.env` né i file inclusi.
+- Le regole Compose e Dockerfile leggono una riga alla volta: non seguono `extends`, le variabili di un file `.env`, i file inclusi né i comandi `RUN` spezzati su più righe con `\`.
 - Non c'è un controllo del sito in esecuzione (intestazioni HTTP, cookie, login) né del database stesso.
 - Nessuno strumento trova tutto: un risultato pulito riduce il rischio, non lo azzera.

@@ -43,7 +43,7 @@ def test_semgrep_command_uses_configs_and_excludes():
     opts = ScanOptions(semgrep_configs=("p/php", "rules.yml"), excludes=("tests",))
     root = Path("/work/proj")
     cmd = build_command(Semgrep(), "local", root, opts)
-    assert cmd.count("--config") == 4 and "p/php" in cmd and "rules.yml" in cmd  # 2 + 2 built-in
+    assert cmd.count("--config") == 5 and "p/php" in cmd and "rules.yml" in cmd  # 2 + 3 built-in
     assert "--metrics=off" in cmd  # no telemetry
     assert cmd[cmd.index("--exclude") + 1] == "tests"
     assert cmd[-1] == str(root)

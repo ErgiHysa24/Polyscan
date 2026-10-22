@@ -1,0 +1,122 @@
+# polyscan rules: risky instructions in Dockerfiles.
+#
+# Checkov already checks Dockerfiles. These rules are polyscan's own, so that the
+# Docker part of a project can be checked without it, and so that they can be
+# read, changed and learned from. A few findings can therefore appear twice,
+# once per tool.
+#
+# Techniques used below:
+#   - a pattern on the instruction:   ADD $SRC $DEST
+#   - a regex on one line:            RUN ... | sh
+#   - a regex on the whole file:      "no USER instruction anywhere"
+rules:
+  - id: polyscan-dockerfile-base-image-not-pinned
+    languages: [dockerfile]
+    severity: WARNING
+    message: >-
+      The base image uses the "latest" tag, or no tag (which means latest). A
+      rebuild next month can pull a different, untested, possibly compromised
+      image. Pin an exact version, and for important images a digest (@sha256:...).
+    paths:
+      include: &dockerfiles ["Dockerfile", "Dockerfile.*", "*.Dockerfile", "*.dockerfile"]
+    metadata: {category: security, cwe: "CWE-1357: Reliance on Insufficiently Trustworthy Component"}
+    patterns:
+      - pattern-either:
+          - pattern: FROM $IMG:latest
+          - patterns:
+              - pattern: FROM $IMG
+              - pattern-not: FROM $IMG:$TAG
+              - pattern-not: FROM $IMG@$DIGEST
+      # `scratch` is the empty image: nothing to pin
+      - metavariable-regex:
+          metavariable: $IMG
+          regex: '^(?!scratch$).*'
+      # `FROM build` after `FROM ... AS build` names a stage, not an image.
+      # $IMG is bound to the same text in both instructions, so only real
+      # stage references are excluded (a regex could not do this for several stages).
+      - pattern-not-inside: |
+          FROM $BASE AS $IMG
+          ...
+          FROM $IMG
+
+  - id: polyscan-dockerfile-runs-as-root
+    languages: [dockerfile]
+    severity: WARNING
+    message: >-
+      No USER instruction sets a non-root user, so the application runs as root
+      inside the container. If it is compromised, the attacker is root there.
+      Create a user (RUN useradd ...) and switch with USER.
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-250: Execution with Unnecessary Privileges"}
+    patterns:
+      # report the LAST FROM line (the stage that becomes the image) ...
+      - pattern-regex: '(?ims)^[ \t]*FROM\b[^\n]*(?!.*^[ \t]*FROM\b)'
+      # ... unless the file has a USER that is not root or 0
+      - pattern-not-regex: '(?ims)\A(?=.*^[ \t]*USER[ \t]+(?!root\b|0\b)\S).*'
+
+  - id: polyscan-dockerfile-add-instead-of-copy
+    languages: [dockerfile]
+    severity: WARNING
+    message: >-
+      ADD does more than copy: it downloads URLs and unpacks archives, which can
+      surprise you. For local files use COPY. ADD is fine for a local .tar that you
+      want unpacked.
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-829: Inclusion of Functionality from Untrusted Control Sphere"}
+    patterns:
+      - pattern-either:
+          - pattern: ADD $SRC $DEST
+          - pattern: ADD --chown=$OWNER $SRC $DEST
+      - metavariable-regex:
+          metavariable: $SRC
+          # not a URL (that is a different problem) and not an archive to unpack
+          regex: '^(?!https?://)(?!.*\.(?:tar|tgz|gz|xz|bz2)$).*'
+
+  - id: polyscan-dockerfile-ssh-port
+    languages: [dockerfile]
+    severity: WARNING
+    message: >-
+      Port 22 (SSH) is exposed. A container should not run an SSH server: use
+      `docker exec` to get a shell, and keep keys out of the image.
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-668: Exposure of Resource to Wrong Sphere"}
+    pattern-regex: '(?mi)^[ \t]*EXPOSE\b[^\n]*(?<![\w.])22(?:/(?:tcp|udp))?(?![\w.])'
+
+  - id: polyscan-dockerfile-hardcoded-secret
+    languages: [dockerfile]
+    severity: ERROR
+    message: >-
+      A password, token or key is set with ENV or ARG. It is stored in the image
+      layers and shown by `docker history`, so anyone with the image has it. Pass
+      it at run time, or use a BuildKit secret (RUN --mount=type=secret,id=...).
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-798: Use of Hard-coded Credentials"}
+    # ARG TOKEN (no value) is not matched; ${VARIABLE} and *_FILE values are skipped.
+    pattern-regex: '(?mi)^[ \t]*(?:ENV|ARG)[ \t]+[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*(?<!_FILE)[ \t]*[= \t][ \t]*["'']?(?![\s$"''#])\S'
+
+  - id: polyscan-dockerfile-pipe-to-shell
+    languages: [dockerfile]
+    severity: ERROR
+    message: >-
+      A script is downloaded and run in one step (curl ... | sh). Whatever the
+      server sends, now or after a compromise, runs as part of your build. Download
+      the file, check its checksum or signature, then run it.
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-494: Download of Code Without Integrity Check"}
+    pattern-regex: '(?mi)^[ \t]*RUN\b[^\n]*\b(?:curl|wget)\b[^\n|]*\|[ \t]*(?:sudo[ \t]+)?(?:ba|z|da)?sh\b'
+
+  - id: polyscan-dockerfile-chmod-777
+    languages: [dockerfile]
+    severity: WARNING
+    message: >-
+      chmod 777 lets every user of the container write and run these files. Give
+      the owner what it needs (for example 755 for programs, 644 for data).
+    paths:
+      include: *dockerfiles
+    metadata: {category: security, cwe: "CWE-732: Incorrect Permission Assignment for Critical Resource"}
+    pattern-regex: '(?mi)^[ \t]*RUN\b[^\n]*\bchmod\b[^\n]*\b0?777\b'
