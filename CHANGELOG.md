@@ -3,6 +3,11 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione è `0.x`, l'interfaccia può cambiare.
 
+## [Non rilasciato]
+
+### Aggiunto
+- **Trivy**: vulnerabilità nelle immagini Docker nominate dal progetto (`FROM` dei Dockerfile e `image:` dei file Compose), solo gravità alta e critica, con la riga del file in cui cambiare il tag. Le immagini con variabili non sono controllabili e sono segnalate come tali.
+
 ## [0.4.0] - 2026-10-22
 
 ### Aggiunto

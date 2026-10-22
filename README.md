@@ -19,6 +19,7 @@ polyscan scan . --html report.html
 | Sito in esecuzione (comando `polyscan dast`) | [OWASP ZAP](https://www.zaproxy.org), baseline passiva | un sito web | solo Docker |
 | Configurazione sbagliata: `Dockerfile` (regole proprie) | Semgrep, con `polyscan/rules/dockerfile.yml` | Docker | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
+| Immagini Docker: vulnerabilità del sistema operativo e dei pacchetti dentro le immagini (`FROM` dei Dockerfile, `image:` di Compose) | [Trivy](https://trivy.dev), una volta per immagine; solo gravità alta e critica | Docker | solo con Docker acceso e internet |
 | Librerie JavaScript (seconda fonte) | `npm audit`, una volta per ogni `package-lock.json` | JavaScript / TypeScript | solo installato (serve `npm` e internet) |
 | Librerie Rust (seconda fonte) | `cargo-audit` (banca dati RustSec), una volta per ogni `Cargo.lock` | Rust | solo installato (`cargo install cargo-audit --locked`) e internet |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
@@ -239,6 +240,7 @@ Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da c
 |---|---|---|
 | Immagini Docker (Semgrep, Gitleaks, OSV-Scanner, Checkov, ZAP) | digest `sha256`, con la versione accanto | `IMAGES` in `polyscan/tools.py` |
 | GitHub Actions (checkout, setup-python, upload-artifact) | hash del commit, con `# vX.Y.Z` in commento | `ci.yml`, `action.yml` |
+| Trivy | immagine per digest (`IMAGES`) | `polyscan/tools.py` |
 | Semgrep nella CI, Bandit nell'action | versione esatta (`==`) | `ci.yml`, `action.yml` |
 | cargo-audit nell'action | versione esatta (`--version 0.22.2 --locked`) | `action.yml` |
 
@@ -281,6 +283,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Limiti
 
+- **Trivy controlla le immagini che il progetto nomina, non quelle che costruisce.** Le immagini ricavate da `FROM` e `image:` sono scaricate dal registro da Trivy stesso (la cartella del progetto e il socket di Docker non gli vengono mai dati; fa solo la ricerca di vulnerabilità, non quella dei segreti). Un servizio Compose con solo `build:` non viene controllato; un nome con una variabile (`FROM ${BASE}`) non può essere risolto e compare come segnalazione informativa "non controllata" invece di sparire. Il nome dell'immagine viene da un file del progetto, quindi è controllato con uno schema rigido prima di arrivare a un comando; al massimo 20 immagini per esecuzione. Servono rete (registro e banca dati di Trivy): se non c'è, o un'immagine è privata e non si può scaricare, il controllo risulta **fallito**, mai pulito. Le immagini base (`postgres:16`, `python:3.12`) portano spesso segnalazioni che non dipendono da te: la correzione è cambiare tag o immagine, e ogni segnalazione indica la riga del file dove farlo. Un tag come `latest` viene scansionato per quello che è oggi, non per quello che sarà domani.
 - **`npm audit` e `cargo-audit` guardano solo il file di blocco** (`package-lock.json`, `Cargo.lock`): non installano nulla e non eseguono script del progetto. Se una verifica non può avvenire (niente rete, `npm` o `cargo-audit` assenti, risposta illeggibile) il controllo risulta **fallito o non eseguito**, mai "pulito". Molte segnalazioni coincidono con quelle di OSV-Scanner (stesso avviso GHSA): compaiono due volte, una per strumento. Per RustSec la gravità è calcolata dal vettore CVSS v3 (la banca dati dà solo il vettore); se manca o è v4 la gravità è *media*. Gli avvisi "unmaintained/yanked" sono segnalati come *bassa*, ma il loro formato nell'output di cargo-audit è provato solo su dati scritti secondo la documentazione, non su un caso reale. Nell'action, `cargo-audit` viene compilato (circa 5 minuti) solo se c'è un `Cargo.lock`.
 - Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.

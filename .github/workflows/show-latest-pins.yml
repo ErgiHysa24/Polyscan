@@ -44,3 +44,27 @@ jobs:
           check bridgecrew/checkov:latest --version
           check ghcr.io/zaproxy/zaproxy:stable zap.sh -version
           check ghcr.io/aquasecurity/trivy:latest --version
+  trivy-sample:
+    # Prints a SHORT sample of real Trivy output (2 vulnerabilities), to be saved as a test fixture.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the pinned Trivy on the demo base image
+        run: |
+          docker run --rm ghcr.io/aquasecurity/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c \
+            image --quiet --format json --scanners vuln --severity HIGH,CRITICAL --image-src remote python:3.9.0 > trivy.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("trivy.json"))
+          total = sum(len(r.get("Vulnerabilities") or []) for r in d.get("Results") or [])
+          for r in d.get("Results") or []:
+              r["Vulnerabilities"] = (r.get("Vulnerabilities") or [])[:2]
+          d["Results"] = [r for r in d["Results"] if r["Vulnerabilities"]][:2]
+          for r in d["Results"]:
+              for v in r["Vulnerabilities"]:
+                  v["Description"] = (v.get("Description") or "")[:120]
+                  for k in ("References", "CVSS", "CweIDs", "VendorSeverity", "PkgIdentifier", "DataSource", "Layer"):
+                      v.pop(k, None)
+          d.pop("Metadata", None) if len(json.dumps(d.get("Metadata", {}))) > 2000 else None
+          print("::notice title=trivy-total::" + str(total) + " vulnerabilities in python:3.9.0")
+          print("::notice title=trivy-sample::" + json.dumps(d, separators=(",", ":")))
+          PY

@@ -20,7 +20,7 @@ FILES_WITH_STEPS = [*sorted((ROOT / ".github" / "workflows").glob("*.yml")), ROO
 
 
 def test_every_pinned_image_is_a_sha256_digest_with_a_version():
-    assert set(IMAGES) == {"semgrep", "gitleaks", "osv-scanner", "checkov", "zap"}
+    assert set(IMAGES) == {"semgrep", "gitleaks", "osv-scanner", "checkov", "zap", "trivy"}
     for key, (name, version, digest) in IMAGES.items():
         assert DIGEST_REF.match(f"{name}@{digest}"), key
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"{key}: version {version!r}"

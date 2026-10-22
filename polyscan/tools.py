@@ -34,6 +34,7 @@ IMAGES = {
     "gitleaks": ("zricethezav/gitleaks", "8.30.1", "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"),
     "osv-scanner": ("ghcr.io/google/osv-scanner", "2.7.0", "sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0"),
     "zap": ("ghcr.io/zaproxy/zaproxy", "2.17.0", "sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6"),
+    "trivy": ("ghcr.io/aquasecurity/trivy", "0.76.1", "sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"),
     "checkov": ("bridgecrew/checkov", "3.3.30", "sha256:4b65e89f1fde292249fc0aa0d0db43302c036dfe39f7370b2d3517571082b894"),
 }  # fmt: skip
 
@@ -400,6 +401,54 @@ def parse_cargo_audit(text: str, root: str) -> list[Finding]:
     return findings
 
 
+TRIVY_SEVERITY = {"CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH, "MEDIUM": Severity.MEDIUM,
+                  "LOW": Severity.LOW, "UNKNOWN": Severity.LOW}  # fmt: skip
+
+
+def parse_trivy(text: str, root: str) -> list[Finding]:
+    """The merged output of polyscan.imagescan (one Trivy report per image).
+
+    Each finding points at the file and line that NAME the image (the FROM or image: line), because
+    that is where a person acts: change the tag or the base image. The same vulnerability seen in
+    several layers of an image is reported once."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "trivy":
+        raise ValueError("this is not polyscan's image scan output")
+    findings, seen = [], set()
+    for image in data.get("images") or []:
+        ref, source, line = str(image.get("ref", "?")), str(image.get("source", "")), int(image.get("line") or 0)
+        for result in (image.get("report") or {}).get("Results") or []:
+            for v in result.get("Vulnerabilities") or []:
+                key = (ref, v.get("VulnerabilityID"), v.get("PkgName"), v.get("InstalledVersion"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                fixed = v.get("FixedVersion")
+                fix = f" Fixed in: {fixed}." if fixed else " No fix published yet."
+                title = " ".join(str(v.get("Title") or v.get("VulnerabilityID") or "Known vulnerability").split())
+                findings.append(
+                    Finding(
+                        tool="trivy",
+                        severity=TRIVY_SEVERITY.get(str(v.get("Severity")), Severity.MEDIUM),
+                        rule=str(v.get("VulnerabilityID", "")),
+                        message=f"{ref}: {v.get('PkgName', '?')} {v.get('InstalledVersion', '?')}: {title}.{fix}",
+                        file=source, line=line, category="dependency",
+                    )
+                )  # fmt: skip
+    # A reference with a variable (FROM ${BASE}) cannot be resolved without building: say so instead of
+    # silently leaving it out, because an image nobody checked must not look like a clean one.
+    for item in data.get("skipped") or []:
+        findings.append(
+            Finding(
+                tool="trivy", severity=Severity.INFO, rule="polyscan-image-not-scanned",
+                message=f"Image reference {item.get('ref', '?')} contains a variable, so it was NOT scanned. "
+                        "Use a fixed image name here or scan the built image yourself.",
+                file=str(item.get("source", "")), line=int(item.get("line") or 0), category="config",
+            )
+        )  # fmt: skip
+    return findings
+
+
 CHECKOV_KINDS = {"dockerfile": "docker", "kubernetes": "kubernetes", "terraform": "terraform"}
 
 
@@ -676,6 +725,29 @@ class CargoAudit(Tool):
         raise NotImplementedError("cargo audit has no Docker image here")
 
 
+class Trivy(Tool):
+    """Known vulnerabilities in the Docker images a project uses (the operating system and packages inside).
+
+    Reads image names from Dockerfiles (FROM) and Compose files (image:), then runs the pinned Trivy
+    image once per name. Needs Docker and the internet (the registry and Trivy's database); the
+    project folder is never given to Trivy. Only HIGH and CRITICAL are reported."""
+
+    def __init__(self):
+        super().__init__(
+            "trivy", "docker", None, parse_trivy,
+            ok_codes=(0,), skip_codes={4: "no Docker image references found"}, languages=frozenset({"docker"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.imagescan", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("trivy is started by polyscan.imagescan, which needs the docker program")
+
+
 class Checkov(Tool):
     """Misconfiguration in Dockerfiles, Kubernetes, Terraform and CI workflows.
 
@@ -784,4 +856,4 @@ def site_tools() -> list[Tool]:
 
 
 def all_tools() -> list[Tool]:
-    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), Checkov()]
+    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), Trivy(), Checkov()]
