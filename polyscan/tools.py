@@ -770,7 +770,8 @@ class Zap(Tool):
         # The secret reaches the container through STANDARD INPUT and is written to a file that exists only
         # inside the container (readable by its user alone, gone with --rm). So it is never an argument
         # (visible in `ps`) and never a file on this computer (readable by other users of a shared machine).
-        script = f'umask 077; cat > {AUTH_PATH} && exec "$@"'
+        # umask only inside the parentheses: the report ZAP writes later must stay readable by this computer's user.
+        script = f'(umask 077; cat > {AUTH_PATH}) && exec "$@"'
         return ["sh", "-c", script, "sh", *cmd, "-z", f"-configfile {AUTH_PATH}"]
 
     def stdin_text(self, opts):

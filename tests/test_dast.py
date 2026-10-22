@@ -337,7 +337,8 @@ def test_the_secret_travels_on_stdin_never_in_arguments_or_a_host_file(tmp_path)
     assert not any("s3cr3t" in part for part in cmd)  # not visible in `ps`
     assert "-i" in cmd  # stdin is kept open for it
     script = cmd[cmd.index("sh") + 2]  # sh -c <script>
-    assert script.startswith("umask 077;") and AUTH_PATH in script and 'exec "$@"' in script
+    # the restrictive umask must be limited to the secret file (a subshell), or ZAP's report becomes unreadable
+    assert script.startswith("(umask 077;") and ") && exec" in script and AUTH_PATH in script and 'exec "$@"' in script
     assert f"-configfile {AUTH_PATH}" in cmd[cmd.index("-z") + 1]
     text = tool.stdin_text(opts)
     assert "matchstr=Authorization" in text and f"replacement={SECRET}" in text
