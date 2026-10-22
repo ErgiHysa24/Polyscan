@@ -30,9 +30,10 @@ def test_builtin_rules_can_be_turned_off():
 
 
 def test_docker_mounts_the_rules_read_only():
-    cmd = build_command(Semgrep(), "docker", Path("/work/proj"), ScanOptions())
+    root = Path("/work/proj")
+    cmd = build_command(Semgrep(), "docker", root, ScanOptions())
     mounts = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-v"]
-    assert "/work/proj:/src:ro" in mounts
+    assert f"{root}:/src:ro" in mounts
     assert f"{RULES_DIR}:/rules:ro" in mounts
     assert "/rules/sql-injection.yml" in cmd
 

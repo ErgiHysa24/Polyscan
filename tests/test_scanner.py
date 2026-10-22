@@ -31,20 +31,22 @@ def one_finding(text, root):
 
 
 def test_docker_command_mounts_read_only_and_uses_no_shell():
-    cmd = build_command(Gitleaks(), "docker", Path("/work/proj"), OPTS)
+    root = Path("/work/proj")
+    cmd = build_command(Gitleaks(), "docker", root, OPTS)
     assert cmd[:3] == ["docker", "run", "--rm"]
-    assert "/work/proj:/src:ro" in cmd
+    assert f"{root}:/src:ro" in cmd  # the host side is a native path (C:\\... on Windows)
     assert isinstance(cmd, list)  # a list is run directly, no shell involved
     assert cmd[cmd.index("-w") + 1] == "/src"
 
 
 def test_semgrep_command_uses_configs_and_excludes():
     opts = ScanOptions(semgrep_configs=("p/php", "rules.yml"), excludes=("tests",))
-    cmd = build_command(Semgrep(), "local", Path("/work/proj"), opts)
+    root = Path("/work/proj")
+    cmd = build_command(Semgrep(), "local", root, opts)
     assert cmd.count("--config") == 3 and "p/php" in cmd and "rules.yml" in cmd  # 2 + built-in
     assert "--metrics=off" in cmd  # no telemetry
     assert cmd[cmd.index("--exclude") + 1] == "tests"
-    assert cmd[-1] == "/work/proj"
+    assert cmd[-1] == str(root)
 
 
 def test_a_path_with_shell_characters_stays_one_argument():
