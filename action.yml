@@ -1,5 +1,5 @@
 name: polyscan
-description: Run Semgrep, Gitleaks, OSV-Scanner and Bandit on a folder and publish one report.
+description: Run Semgrep, Gitleaks, OSV-Scanner, Bandit and Checkov on a folder and publish one report.
 branding:
   icon: shield
   color: blue
@@ -20,6 +20,9 @@ inputs:
   semgrep-config:
     description: Comma separated Semgrep rule packs or files. Empty uses the defaults.
     default: ""
+  history:
+    description: "true to also search old commits for secrets. The checkout step must use fetch-depth: 0, otherwise this check is reported as not run."
+    default: "false"
   strict:
     description: "true to also fail when a tool is missing, not only when it errors."
     default: "false"
@@ -57,6 +60,7 @@ runs:
         INPUT_EXCLUDE: ${{ inputs.exclude }}
         INPUT_SEMGREP: ${{ inputs.semgrep-config }}
         INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_HISTORY: ${{ inputs.history }}
       run: |
         report_dir="$RUNNER_TEMP/polyscan-report"
         mkdir -p "$report_dir"
@@ -69,6 +73,7 @@ runs:
         IFS=',' read -ra items <<< "$INPUT_SEMGREP"
         for item in "${items[@]}"; do [ -n "$item" ] && args+=(--semgrep-config "$item"); done
         [ "$INPUT_STRICT" = "true" ] && args+=(--strict)
+        [ "$INPUT_HISTORY" = "true" ] && args+=(--history)
         set +e
         polyscan "${args[@]}"
         code=$?

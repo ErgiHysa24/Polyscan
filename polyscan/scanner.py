@@ -116,7 +116,7 @@ def add_snippets(findings: list[Finding], root: Path) -> list[Finding]:
     """Fill in the code line where the tool gave none (or gave a placeholder)."""
     out = []
     for f in findings:
-        if f.category == "code" and (not f.snippet or f.snippet == "requires login"):
+        if f.category in ("code", "config") and (not f.snippet or f.snippet == "requires login"):
             f = replace(f, snippet=read_line(root, f.file, f.line))
         out.append(f)
     return out
@@ -178,17 +178,20 @@ def scan(
         raise ValueError(f"mode must be one of {MODES}")
     root = root.resolve()
     opts = opts or ScanOptions()
-    opts = ScanOptions(
-        opts.semgrep_configs, tuple(sorted(set(opts.excludes) | DEFAULT_EXCLUDES)), opts.builtin_rules
-    )
+    opts = replace(opts, excludes=tuple(sorted(set(opts.excludes) | DEFAULT_EXCLUDES)))
     languages = detect_languages(root, frozenset(opts.excludes))
     result = ScanResult(str(root), languages, mode=mode)
 
     for tool in tools or all_tools():
-        if only and tool.name not in only:
+        if (only and tool.name not in only) or not tool.wanted(opts):
             continue
         if not tool.applies(languages):
             result.tools.append(ToolResult(tool.name, SKIPPED, "no matching language found"))
+            continue
+        problem = tool.precheck(root)
+        if problem:
+            # The person asked for this check and it cannot run: that is a gap, not a clean result.
+            result.tools.append(ToolResult(tool.name, UNAVAILABLE, problem))
             continue
         how, reason = choose_how(tool, mode)
         if how is None:

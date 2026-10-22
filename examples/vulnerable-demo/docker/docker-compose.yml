@@ -1,0 +1,18 @@
+# DELIBERATELY INSECURE: demo for polyscan, do not copy.
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - db
+  db:
+    image: mysql:latest
+    privileged: true
+    network_mode: host
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"

@@ -43,7 +43,7 @@ def test_semgrep_command_uses_configs_and_excludes():
     opts = ScanOptions(semgrep_configs=("p/php", "rules.yml"), excludes=("tests",))
     root = Path("/work/proj")
     cmd = build_command(Semgrep(), "local", root, opts)
-    assert cmd.count("--config") == 3 and "p/php" in cmd and "rules.yml" in cmd  # 2 + built-in
+    assert cmd.count("--config") == 4 and "p/php" in cmd and "rules.yml" in cmd  # 2 + 2 built-in
     assert "--metrics=off" in cmd  # no telemetry
     assert cmd[cmd.index("--exclude") + 1] == "tests"
     assert cmd[-1] == str(root)
@@ -221,3 +221,57 @@ def test_identical_findings_are_reported_once(tmp_path):
 
     res = run_tool(FakeTool("print('{}')", parse=parse), "local", tmp_path, OPTS, 30)
     assert [(f.rule, f.line) for f in res.findings] == [("r", 15), ("r", 16), ("r2", 15)]
+
+
+# ------------------------------------------------------- secrets in history
+
+
+def git(cwd, *args):
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )  # fmt: skip
+
+
+def history_tool():
+    from polyscan.tools import GitleaksHistory
+
+    return GitleaksHistory()
+
+
+def test_history_tool_runs_only_when_asked():
+    tool = history_tool()
+    assert tool.wanted(ScanOptions(history=True)) and not tool.wanted(ScanOptions())
+
+
+def test_history_scan_is_not_listed_unless_requested(tmp_path):
+    result = scan(tmp_path, "local", ScanOptions(), tools=[history_tool()])
+    assert result.tools == []
+
+
+def test_history_without_git_folder_is_a_gap_not_a_clean_result(tmp_path):
+    result = scan(tmp_path, "local", ScanOptions(history=True), tools=[history_tool()])
+    (res,) = result.tools
+    assert res.status == UNAVAILABLE and ".git" in res.detail
+    assert result.had_gaps
+
+
+def test_history_in_a_shallow_clone_is_a_gap(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "shallow").write_text("abc\n")
+    (res,) = scan(tmp_path, "local", ScanOptions(history=True), tools=[history_tool()]).tools
+    assert res.status == UNAVAILABLE and "shallow" in res.detail
+
+
+def test_history_findings_name_the_commit_but_not_the_author():
+    from polyscan.tools import parse_gitleaks
+
+    out = (
+        '[{"RuleID": "generic-api-key", "File": "old.py", "StartLine": 3, "Description": "Key", '
+        '"Commit": "f2f0065a572f185a999341591f840fd7ebf31924", "Author": "Mario Rossi", "Email": "mario@example.com"}]'
+    )
+    (f,) = parse_gitleaks(out, "/ROOT")
+    assert "f2f0065a" in f.message and "f2f0065a5" not in f.message
+    assert "Mario" not in f.message and "example.com" not in f.message and "Mario" not in str(f.to_dict())

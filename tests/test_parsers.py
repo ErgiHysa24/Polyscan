@@ -5,10 +5,12 @@ import pytest
 from polyscan.models import Severity
 from polyscan.tools import (
     parse_bandit,
+    parse_checkov,
     parse_gitleaks,
     parse_osv,
     parse_semgrep,
     rel_path,
+    scan_errors,
 )
 
 FIX = Path(__file__).parent / "fixtures"
@@ -50,7 +52,7 @@ def test_gitleaks_clean_output_is_an_empty_list():
     assert parse_gitleaks("[]", "/ROOT") == []
 
 
-@pytest.mark.parametrize("parser", [parse_semgrep, parse_gitleaks, parse_osv, parse_bandit])
+@pytest.mark.parametrize("parser", [parse_semgrep, parse_gitleaks, parse_osv, parse_bandit, parse_checkov])
 def test_empty_output_is_an_error_not_a_clean_result(parser):
     with pytest.raises(ValueError):
         parser("", "/ROOT")
@@ -92,8 +94,47 @@ def test_cvss_bands(score, expected):
     assert Severity.from_cvss(score) == expected
 
 
-@pytest.mark.parametrize("parser", [parse_semgrep, parse_osv, parse_bandit])
+@pytest.mark.parametrize("parser", [parse_semgrep, parse_osv, parse_bandit, parse_checkov])
 def test_garbage_input_raises_value_error(parser):
     # The scanner turns this into a visible ERROR status, never a clean result.
     with pytest.raises(ValueError):
         parser("this is not json", "/ROOT")
+
+
+def test_checkov_real_output_with_several_kinds_of_files():
+    """Real output: a list with one object per kind (Kubernetes and Dockerfile)."""
+    findings = parse_checkov(read("checkov.json"), "/ROOT")
+    assert {f.language for f in findings} == {"kubernetes", "docker"}
+    docker = next(f for f in findings if f.language == "docker")
+    assert docker.rule.startswith("CKV_DOCKER_") and docker.file == "Dockerfile"  # no leading "/"
+    assert docker.category == "config" and docker.line > 0
+    assert all(f.severity == Severity.MEDIUM for f in findings)  # the free version gives none
+    assert all(not f.file.startswith("/") for f in findings)
+
+
+def test_checkov_single_kind_is_one_object_not_a_list():
+    one = '{"check_type": "dockerfile", "results": {"failed_checks": [{"check_id": "CKV_DOCKER_2", ' \
+          '"check_name": "HEALTHCHECK", "file_path": "/sub/Dockerfile", "file_line_range": [1, 6]}]}}'
+    (f,) = parse_checkov(one, "/ROOT")
+    assert f.file == "sub/Dockerfile" and f.line == 1 and f.language == "docker"
+
+
+def test_checkov_empty_folder_prints_only_a_summary_and_means_no_findings():
+    assert parse_checkov(read("checkov-empty.json"), "/ROOT") == []
+
+
+def test_checkov_severity_is_used_when_the_platform_provides_it():
+    out = '{"check_type": "dockerfile", "results": {"failed_checks": [{"check_id": "X", "check_name": "n", ' \
+          '"file_path": "/Dockerfile", "file_line_range": [3, 3], "severity": "HIGH"}]}}'
+    assert parse_checkov(out, "/ROOT")[0].severity == Severity.HIGH
+
+
+def test_scan_errors_counts_checkov_parsing_errors_in_all_shapes():
+    assert scan_errors(read("checkov-empty.json")) == 0
+    one = {"check_type": "dockerfile", "summary": {"parsing_errors": 2}}
+    import json
+
+    assert scan_errors(json.dumps(one)) == 2
+    assert scan_errors(json.dumps([one, one])) == 4
+    assert scan_errors(read("checkov.json")) == 0
+    assert scan_errors('{"errors": [1, 2, 3]}') == 3  # Semgrep / Bandit shape still works

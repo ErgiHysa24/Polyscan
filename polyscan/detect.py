@@ -1,4 +1,4 @@
-"""Find out which languages a folder contains."""
+"""Find out which languages (and kinds of configuration) a folder contains."""
 
 from __future__ import annotations
 
@@ -38,6 +38,26 @@ MANIFESTS = {
     "Cargo.lock": "rust",
 }
 
+# Configuration files are recognised by NAME (a Dockerfile has no extension).
+# The result is a "kind" that is counted like a language, so tools can say
+# "run me only if the project has Docker files".
+CONFIG_NAMES = {
+    "docker": (
+        "Dockerfile", "Dockerfile.*", "*.Dockerfile", "*.dockerfile",
+        "docker-compose.yml", "docker-compose.yaml", "docker-compose.*.yml", "docker-compose.*.yaml",
+        "compose.yml", "compose.yaml",
+    ),
+    "terraform": ("*.tf",),
+}  # fmt: skip
+
+
+def config_kind(filename: str) -> str:
+    for kind, patterns in CONFIG_NAMES.items():
+        if any(fnmatch.fnmatchcase(filename, pat) for pat in patterns):
+            return kind
+    return ""
+
+
 # Folders full of third-party or generated code. Scanning them is slow and
 # produces findings the project owner cannot fix.
 DEFAULT_EXCLUDES = frozenset(
@@ -69,7 +89,7 @@ def detect_languages(root: Path, excludes: frozenset[str] = DEFAULT_EXCLUDES) ->
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         dirnames[:] = [d for d in dirnames if not any(fnmatch.fnmatch(d, p) for p in excludes)]
         for name in filenames:
-            lang = MANIFESTS.get(name) or EXTENSIONS.get(os.path.splitext(name)[1].lower())
+            lang = MANIFESTS.get(name) or EXTENSIONS.get(os.path.splitext(name)[1].lower()) or config_kind(name)
             if lang:
                 counts[lang] = counts.get(lang, 0) + 1
     return dict(sorted(counts.items()))

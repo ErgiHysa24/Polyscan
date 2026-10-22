@@ -1,0 +1,416 @@
+[
+ {
+  "check_type": "kubernetes",
+  "results": {
+   "failed_checks": [
+    {
+     "check_id": "CKV_K8S_12",
+     "bc_check_id": null,
+     "check_name": "Memory requests should be set",
+     "check_result": {
+      "result": "FAILED",
+      "evaluated_keys": [
+       "spec/containers/[0]/resources/requests/memory"
+      ]
+     },
+     "code_block": [
+      [
+       1,
+       "apiVersion: v1\n"
+      ],
+      [
+       2,
+       "kind: Pod\n"
+      ],
+      [
+       3,
+       "metadata:\n"
+      ],
+      [
+       4,
+       "  name: demo\n"
+      ],
+      [
+       5,
+       "spec:\n"
+      ],
+      [
+       6,
+       "  containers:\n"
+      ],
+      [
+       7,
+       "    - name: app\n"
+      ],
+      [
+       8,
+       "      image: nginx:latest\n"
+      ],
+      [
+       9,
+       "      securityContext:\n"
+      ],
+      [
+       10,
+       "        privileged: true\n"
+      ]
+     ],
+     "file_path": "/pod.yaml",
+     "file_abs_path": "/tmp/claude-0/ck/multi/pod.yaml",
+     "repo_file_path": "/multi/pod.yaml",
+     "file_line_range": [
+      1,
+      10
+     ],
+     "resource": "Pod.default.demo",
+     "evaluations": {},
+     "check_class": "checkov.kubernetes.checks.resource.k8s.MemoryRequests",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    },
+    {
+     "check_id": "CKV_K8S_9",
+     "bc_check_id": null,
+     "check_name": "Readiness Probe Should be Configured",
+     "check_result": {
+      "result": "FAILED",
+      "evaluated_keys": [
+       "spec/containers/[0]/readinessProbe"
+      ]
+     },
+     "code_block": [
+      [
+       1,
+       "apiVersion: v1\n"
+      ],
+      [
+       2,
+       "kind: Pod\n"
+      ],
+      [
+       3,
+       "metadata:\n"
+      ],
+      [
+       4,
+       "  name: demo\n"
+      ],
+      [
+       5,
+       "spec:\n"
+      ],
+      [
+       6,
+       "  containers:\n"
+      ],
+      [
+       7,
+       "    - name: app\n"
+      ],
+      [
+       8,
+       "      image: nginx:latest\n"
+      ],
+      [
+       9,
+       "      securityContext:\n"
+      ],
+      [
+       10,
+       "        privileged: true\n"
+      ]
+     ],
+     "file_path": "/pod.yaml",
+     "file_abs_path": "/tmp/claude-0/ck/multi/pod.yaml",
+     "repo_file_path": "/multi/pod.yaml",
+     "file_line_range": [
+      1,
+      10
+     ],
+     "resource": "Pod.default.demo",
+     "evaluations": {},
+     "check_class": "checkov.kubernetes.checks.resource.k8s.ReadinessProbe",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    },
+    {
+     "check_id": "CKV_K8S_14",
+     "bc_check_id": null,
+     "check_name": "Image Tag should be fixed - not latest or blank",
+     "check_result": {
+      "result": "FAILED",
+      "evaluated_keys": [
+       "spec/containers/[0]/image"
+      ]
+     },
+     "code_block": [
+      [
+       1,
+       "apiVersion: v1\n"
+      ],
+      [
+       2,
+       "kind: Pod\n"
+      ],
+      [
+       3,
+       "metadata:\n"
+      ],
+      [
+       4,
+       "  name: demo\n"
+      ],
+      [
+       5,
+       "spec:\n"
+      ],
+      [
+       6,
+       "  containers:\n"
+      ],
+      [
+       7,
+       "    - name: app\n"
+      ],
+      [
+       8,
+       "      image: nginx:latest\n"
+      ],
+      [
+       9,
+       "      securityContext:\n"
+      ],
+      [
+       10,
+       "        privileged: true\n"
+      ]
+     ],
+     "file_path": "/pod.yaml",
+     "file_abs_path": "/tmp/claude-0/ck/multi/pod.yaml",
+     "repo_file_path": "/multi/pod.yaml",
+     "file_line_range": [
+      1,
+      10
+     ],
+     "resource": "Pod.default.demo",
+     "evaluations": {},
+     "check_class": "checkov.kubernetes.checks.resource.k8s.ImageTagFixed",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    }
+   ]
+  },
+  "summary": {
+   "passed": 69,
+   "failed": 20,
+   "skipped": 0,
+   "parsing_errors": 0,
+   "resource_count": 1,
+   "checkov_version": "3.3.30"
+  }
+ },
+ {
+  "check_type": "dockerfile",
+  "results": {
+   "failed_checks": [
+    {
+     "check_id": "CKV_DOCKER_1",
+     "bc_check_id": null,
+     "check_name": "Ensure port 22 is not exposed",
+     "check_result": {
+      "result": "FAILED",
+      "results_configuration": [
+       {
+        "instruction": "EXPOSE",
+        "startline": 4,
+        "endline": 4,
+        "content": "EXPOSE 22\n",
+        "value": "22"
+       }
+      ]
+     },
+     "code_block": [
+      [
+       5,
+       "EXPOSE 22\n"
+      ]
+     ],
+     "file_path": "/Dockerfile",
+     "file_abs_path": "/tmp/claude-0/ck/multi/Dockerfile",
+     "repo_file_path": "/multi/Dockerfile",
+     "file_line_range": [
+      5,
+      5
+     ],
+     "resource": "/Dockerfile.EXPOSE",
+     "evaluations": null,
+     "check_class": "checkov.dockerfile.checks.ExposePort22",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    },
+    {
+     "check_id": "CKV_DOCKER_7",
+     "bc_check_id": null,
+     "check_name": "Ensure the base image uses a non latest version tag",
+     "check_result": {
+      "result": "FAILED",
+      "results_configuration": [
+       {
+        "instruction": "FROM",
+        "startline": 0,
+        "endline": 0,
+        "content": "FROM python:latest\n",
+        "value": "python:latest"
+       }
+      ]
+     },
+     "code_block": [
+      [
+       1,
+       "FROM python:latest\n"
+      ]
+     ],
+     "file_path": "/Dockerfile",
+     "file_abs_path": "/tmp/claude-0/ck/multi/Dockerfile",
+     "repo_file_path": "/multi/Dockerfile",
+     "file_line_range": [
+      1,
+      1
+     ],
+     "resource": "/Dockerfile.FROM",
+     "evaluations": null,
+     "check_class": "checkov.dockerfile.checks.ReferenceLatestTag",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    },
+    {
+     "check_id": "CKV_DOCKER_4",
+     "bc_check_id": null,
+     "check_name": "Ensure that COPY is used instead of ADD in Dockerfiles",
+     "check_result": {
+      "result": "FAILED",
+      "results_configuration": [
+       {
+        "instruction": "ADD",
+        "startline": 1,
+        "endline": 1,
+        "content": "ADD . /app\n",
+        "value": ". /app"
+       }
+      ]
+     },
+     "code_block": [
+      [
+       2,
+       "ADD . /app\n"
+      ]
+     ],
+     "file_path": "/Dockerfile",
+     "file_abs_path": "/tmp/claude-0/ck/multi/Dockerfile",
+     "repo_file_path": "/multi/Dockerfile",
+     "file_line_range": [
+      2,
+      2
+     ],
+     "resource": "/Dockerfile.ADD",
+     "evaluations": null,
+     "check_class": "checkov.dockerfile.checks.AddExists",
+     "fixed_definition": null,
+     "entity_tags": null,
+     "caller_file_path": null,
+     "caller_file_line_range": null,
+     "resource_address": null,
+     "severity": null,
+     "bc_category": null,
+     "benchmarks": null,
+     "description": null,
+     "short_description": null,
+     "vulnerability_details": null,
+     "connected_node": null,
+     "guideline": null,
+     "details": [],
+     "check_len": null,
+     "definition_context_file_path": null
+    }
+   ]
+  },
+  "summary": {
+   "passed": 25,
+   "failed": 5,
+   "skipped": 0,
+   "parsing_errors": 0,
+   "resource_count": 1,
+   "checkov_version": "3.3.30"
+  }
+ }
+]

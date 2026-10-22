@@ -1,0 +1,87 @@
+# polyscan rules: risky settings in docker-compose files.
+#
+# Checkov has no checks for Compose, so these rules fill the gap. Semgrep reads
+# YAML, but most rules here are small regular expressions on single lines, which
+# is enough for the flat structure of a Compose file.
+#
+# `paths.include` limits every rule to Compose files; other YAML is left alone.
+rules:
+  - id: polyscan-compose-privileged
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      The container runs with privileged: true, which gives it almost the same
+      power as root on the host. Remove it, or add only the capabilities it
+      needs with cap_add.
+    paths:
+      include: &compose_files ["docker-compose*.yml", "docker-compose*.yaml", "compose.yml", "compose.yaml"]
+    metadata: {category: security, cwe: "CWE-250: Execution with Unnecessary Privileges"}
+    pattern: "privileged: true"
+
+  - id: polyscan-compose-host-network
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      network_mode: host removes the network isolation of the container: it can
+      reach every service on the host. Use a normal network and publish only the
+      ports you need.
+    paths:
+      include: *compose_files
+    metadata: {category: security, cwe: "CWE-668: Exposure of Resource to Wrong Sphere"}
+    pattern: "network_mode: host"
+
+  - id: polyscan-compose-docker-socket
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      The Docker socket is mounted into the container. Whoever controls this
+      container controls Docker, and so the whole host. Avoid it, or use a
+      socket proxy that allows only the calls you need.
+    paths:
+      include: *compose_files
+    metadata: {category: security, cwe: "CWE-250: Execution with Unnecessary Privileges"}
+    pattern-regex: '(?m)^[ \t]*-[ \t]*["'']?/var/run/docker\.sock[^\n]*'
+
+  - id: polyscan-compose-database-port-public
+    languages: [yaml]
+    severity: WARNING
+    message: >-
+      A database port is published on every network interface of the host.
+      Bind it to localhost ("127.0.0.1:3306:3306") or do not publish it: other
+      containers reach it through the Compose network anyway.
+    paths:
+      include: *compose_files
+    metadata: {category: security, cwe: "CWE-668: Exposure of Resource to Wrong Sphere"}
+    pattern-regex: '(?m)^[ \t]*-[ \t]*["'']?(?:0\.0\.0\.0:)?(?:3306|5432|27017|6379|1433|9200|11211):\d+["'']?[ \t]*$'
+
+  - id: polyscan-compose-hardcoded-secret
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      A password, token or key is written in the Compose file, so it ends up in
+      git. Read it from the environment ("${DB_PASSWORD}") or use Docker secrets
+      (a *_FILE variable pointing to /run/secrets/...).
+    paths:
+      include: *compose_files
+    metadata: {category: security, cwe: "CWE-798: Use of Hard-coded Credentials"}
+    # Matches both forms:  KEY: value   and   - KEY=value
+    # (?<!_FILE) skips MYSQL_PASSWORD_FILE; (?!\$) skips ${VARIABLES};
+    # [ \t]* instead of \s* keeps the match on one line, so a bare "secrets:" title does not match.
+    pattern-regex: '(?mi)^[ \t]*(?:-[ \t]*)?[A-Za-z0-9_]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_]*(?<!_FILE)[ \t]*[:=][ \t]*["'']?(?![\s$"''#])[^\n]*'
+
+  - id: polyscan-compose-image-not-pinned
+    languages: [yaml]
+    severity: WARNING
+    message: >-
+      The image uses the "latest" tag (or no tag, which means latest). A rebuild
+      next month can pull a different, untested, possibly compromised version.
+      Pin an exact version, and for important images a digest (@sha256:...).
+    paths:
+      include: *compose_files
+    metadata: {category: security, cwe: "CWE-1357: Reliance on Insufficiently Trustworthy Component"}
+    patterns:
+      - pattern: "image: $IMG"
+      - metavariable-regex:
+          metavariable: $IMG
+          # either "...:latest", or a name with no ":" and no "@" at all
+          regex: '^(?:.*:latest|[^:@]+)$'

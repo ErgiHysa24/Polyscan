@@ -13,6 +13,9 @@ polyscan scan . --html report.html
 | Codice pericoloso (SAST) | [Semgrep](https://semgrep.dev) | tutti e 5 | Docker o installato |
 | Iniezioni SQL (regole di polyscan) | Semgrep, con `polyscan/rules/sql-injection.yml` | tutti e 5 | come Semgrep |
 | Segreti nel codice | [Gitleaks](https://github.com/gitleaks/gitleaks) | qualsiasi | Docker o installato |
+| Segreti nei vecchi commit (con `--history`) | Gitleaks, modalità `git` | qualsiasi | Docker o installato |
+| Configurazione sbagliata: Dockerfile, Kubernetes, Terraform, workflow GitHub | [Checkov](https://www.checkov.io) | file di configurazione | Docker o installato |
+| Configurazione sbagliata: `docker-compose.yml` | Semgrep, con `polyscan/rules/docker-compose.yml` | Compose | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
@@ -33,6 +36,20 @@ Una **SQL injection** nasce quando una query viene costruita incollando testo (c
 Le query con segnaposto (`?`, `%s`, `.bind()`, `params![]`) e le query fatte solo di costanti non vengono segnalate. Le regole sono provate con esempi `ruleid`/`ok` in `tests/sql/`. Per spegnerle: `--no-builtin-rules`.
 
 Limiti: il seguire il valore funziona **dentro una funzione**; se la query viene costruita in una funzione e eseguita in un'altra, può sfuggire. Non guarda i file `.sql` e non capisce un ORM: controlla solo il codice dell'applicazione.
+
+## Configurazione e storia git
+
+**Configurazione.** Un'applicazione con database di solito ha un `Dockerfile` e un `docker-compose.yml`, e gli errori lì sono pericolosi quanto quelli nel codice: un container `privileged`, il socket di Docker montato, la porta del database aperta a tutta la rete, un'immagine `latest` che cambia da sola.
+- **Checkov** controlla i `Dockerfile` (utente root, `ADD` al posto di `COPY`, tag `latest`, nessun `HEALTHCHECK`, porta 22), i manifest Kubernetes, Terraform e i workflow di GitHub. Parte da solo se trova questi file. Nella versione gratuita non dà una gravità: tutto è segnato "media".
+- **Docker Compose** non ha controlli in Checkov, quindi polyscan ha regole proprie per Semgrep: `privileged: true`, `network_mode: host`, socket di Docker, porte di database pubblicate (`3306`, `5432`, `27017`, `6379`...), password scritte nel file (anche nella forma `- CHIAVE=valore`; le variabili `${...}` e le `*_FILE` sono accettate), immagini non fissate. Sono provate con esempi in `tests/compose/`.
+
+**Storia git.** Una chiave cancellata con un commit resta leggibile a chi può leggere il repository. Con `--history` Gitleaks guarda anche tutti i vecchi commit e il rapporto indica il commit (solo le prime 8 cifre dell'hash: autore ed e-mail non vengono mai mostrati). Una chiave trovata così va considerata **compromessa e sostituita**: toglierla dal codice non basta. Richiede la cartella radice del repository con la storia completa: se manca `.git`, o il clone è parziale (`git clone --depth`, o `actions/checkout` senza `fetch-depth: 0`), il controllo risulta "non eseguito" invece di sembrare pulito.
+
+```bash
+polyscan scan . --history
+```
+
+Se il segreto è nei file di oggi e anche in un vecchio commit, compare due volte (una per ciascun controllo).
 
 ## Installazione
 
@@ -56,6 +73,7 @@ polyscan scan . --exclude tests --exclude "*.min.js"
 polyscan scan . --only semgrep,gitleaks
 polyscan scan . --semgrep-config p/php           # altre regole Semgrep
 polyscan scan . --mode docker                    # forza Docker (auto, docker, local)
+polyscan scan . --history                        # cerca segreti anche nei vecchi commit
 ```
 
 Prova subito sugli esempi inclusi (progetti con problemi inseriti apposta, uno per linguaggio):
@@ -116,16 +134,19 @@ on:
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
 
-## Cosa è stato verificato (versione 0.1)
+## Cosa è stato verificato (versione 0.2)
 
-- **92 test** (parser, rilevamento linguaggi, esecuzione, rapporti, uscite). Sono stati provati anche rompendo di proposito le difese (escape dell'HTML, segreti nascosti, output vuoto) per vedere che i test falliscano.
-- **Provati con gli strumenti veri** su `examples/vulnerable-demo`: Semgrep (con regole locali), Gitleaks, Bandit. I loro file di prova in `tests/fixtures/` sono output reale.
-- **Non provati con lo strumento vero** nell'ambiente di sviluppo: la lettura dei risultati di **OSV-Scanner** (il suo database non era raggiungibile: il file di prova è scritto a mano sullo schema documentato) e la modalità **Docker** (il servizio non era attivo: si è provata solo la costruzione dei comandi e la gestione dell'errore). Lo verifica il job `demo-scan` della CI su GitHub, dove tutto è raggiungibile.
-- Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete e non sono state scaricate: cosa trovano su Java, PHP e Rust dipende da quelle regole.
+- **111 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
+- **Provati dalla CI su GitHub** (job `demo-scan`, dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner. Il job fallisce se uno strumento non gira o non trova nulla nei progetti demo.
+- Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.
 
 ## Limiti
 
 - Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.
 - Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, `cargo audit`, `npm audit`) non sono ancora inclusi.
+- Checkov parte solo se trova un `Dockerfile`, un file Compose o un `.tf`: un progetto con soli manifest Kubernetes non viene controllato.
+- Le regole Compose leggono righe singole: non seguono `extends`, le variabili di un file `.env` né i file inclusi.
+- Non c'è un controllo del sito in esecuzione (intestazioni HTTP, cookie, login) né del database stesso.
 - Nessuno strumento trova tutto: un risultato pulito riduce il rischio, non lo azzera.

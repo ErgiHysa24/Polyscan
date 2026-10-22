@@ -31,7 +31,7 @@ jobs:
   # The built-in SQL injection rules are tested with the real Semgrep: every
   # "ruleid" example must be found and every "ok" example must stay quiet.
   sql-rules:
-    name: SQL rules (semgrep --test)
+    name: Built-in rules (SQL, Docker Compose)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,19 +39,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]" semgrep
-      - run: python -m pytest -v tests/test_sql_rules.py
+      - run: python -m pytest -v tests/test_sql_rules.py tests/test_compose_rules.py
 
-  # polyscan scans its own code. The examples contain deliberate problems and
-  # the test fixtures contain saved scanner output, so both are excluded.
+  # polyscan scans its own code and its whole git history. The examples contain
+  # deliberate problems and the test fixtures contain saved scanner output, so
+  # both are excluded.
   dogfood:
     name: Scan this repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the whole history, so old commits can be searched for secrets
       - uses: ./
         with:
           exclude: examples,tests
           fail-on: high
+          history: "true"
 
   # End-to-end check on GitHub, where Docker and the vulnerability databases
   # are reachable: every tool must run and the demo projects must be flagged.
@@ -81,7 +85,7 @@ jobs:
               elif t["findings"] == 0:
                   problems.append(f"{name}: ran but found nothing in the demo projects")
           langs = set(data["languages"])
-          if langs != {"java", "javascript", "php", "python", "rust"}:
+          if langs != {"java", "javascript", "php", "python", "rust", "docker"}:
               problems.append(f"languages detected: {sorted(langs)}")
           if problems:
               print("PROBLEMS:", *problems, sep="\n  ")

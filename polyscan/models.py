@@ -48,7 +48,7 @@ class Finding:
     message: str
     file: str = ""
     line: int = 0
-    category: str = "code"  # code | secret | dependency
+    category: str = "code"  # code | secret | dependency | config
     language: str = ""
     snippet: str = ""
 

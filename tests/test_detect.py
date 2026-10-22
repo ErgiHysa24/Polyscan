@@ -53,3 +53,15 @@ def test_user_excludes_also_apply_to_detection(tmp_path):
     touch(tmp_path / "examples" / "demo" / "x.php")
     assert detect_languages(tmp_path, frozenset({"examples"})) == {"python": 1}
     assert detect_languages(tmp_path, frozenset({"ex*"})) == {"python": 1}
+
+
+def test_config_files_are_recognised_by_name(tmp_path):
+    for name in ("Dockerfile", "api.Dockerfile", "docker-compose.yml", "docker-compose.prod.yaml", "main.tf"):
+        touch(tmp_path / name)
+    assert detect_languages(tmp_path) == {"docker": 4, "terraform": 1}
+
+
+def test_ordinary_yaml_is_not_a_config_kind(tmp_path):
+    touch(tmp_path / "settings.yml")
+    touch(tmp_path / "docs" / "dockerfile-notes.md")
+    assert detect_languages(tmp_path) == {}

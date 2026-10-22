@@ -86,7 +86,10 @@ def parse_gitleaks(text: str, root: str) -> list[Finding]:
                 tool="gitleaks",
                 severity=Severity.HIGH,
                 rule=r.get("RuleID", ""),
-                message=r.get("Description", "Possible secret"),
+                message=r.get("Description", "Possible secret")
+                # Only in history scans. The short hash is enough to find the commit;
+                # author and e-mail are personal data and stay out of reports.
+                + (f" (in commit {str(r['Commit'])[:8]})" if r.get("Commit") else ""),
                 file=path,
                 line=int(r.get("StartLine", 0)),
                 category="secret",
@@ -177,12 +180,53 @@ def parse_bandit(text: str, root: str) -> list[Finding]:
     return findings
 
 
+CHECKOV_KINDS = {"dockerfile": "docker", "kubernetes": "kubernetes", "terraform": "terraform"}
+
+
+def parse_checkov(text: str, root: str) -> list[Finding]:
+    """Checkov prints ONE object when it found a single kind of file, a LIST of
+    objects when it found several, and only a summary on a folder with nothing
+    to check. All three shapes are handled here."""
+    data = _loads(text)
+    reports = data if isinstance(data, list) else [data]
+    findings = []
+    for report in reports:
+        kind = str(report.get("check_type", ""))
+        for r in (report.get("results") or {}).get("failed_checks", []):
+            # With an absolute folder, file_path is relative to it, with a leading "/".
+            path = str(r.get("file_path", "")).replace("\\", "/").lstrip("/")
+            lines = r.get("file_line_range") or [0]
+            findings.append(
+                Finding(
+                    tool="checkov",
+                    # The free version gives no severity (null): start at medium.
+                    severity=BANDIT_SEVERITY.get(str(r.get("severity") or "").upper(), Severity.MEDIUM),
+                    rule=r.get("check_id", ""),
+                    message=r.get("check_name", ""),
+                    file=path,
+                    line=int(lines[0]),
+                    category="config",
+                    language=CHECKOV_KINDS.get(kind, kind),
+                )
+            )
+    return findings
+
+
 def scan_errors(text: str) -> int:
-    """Files Semgrep or Bandit could not analyze. Both exit successfully anyway,
-    so the number is shown in the report instead of hiding behind "ok"."""
+    """Files a tool could not analyze, although it exited successfully. Semgrep and
+    Bandit list them under "errors"; Checkov counts them in summary.parsing_errors.
+    The number is shown in the report instead of hiding behind "ok"."""
     data = json.loads(text)
-    errors = data.get("errors", []) if isinstance(data, dict) else []
-    return len(errors) if isinstance(errors, list) else 0
+    total = 0
+    for item in data if isinstance(data, list) else [data]:
+        if not isinstance(item, dict):
+            continue
+        errors = item.get("errors", [])
+        total += len(errors) if isinstance(errors, list) else 0
+        summary = item.get("summary", item)  # an empty folder prints the summary alone
+        count = summary.get("parsing_errors", 0) if isinstance(summary, dict) else 0
+        total += count if isinstance(count, int) else 0
+    return total
 
 
 # ------------------------------------------------------------------ tools
@@ -215,17 +259,26 @@ class Tool:
         """Extra read-only folders (host path, container path) needed in Docker."""
         return []
 
+    def wanted(self, opts: "ScanOptions") -> bool:
+        """False for tools that run only when asked for (silently left out otherwise)."""
+        return True
+
+    def precheck(self, root: Path) -> str | None:
+        """A reason why the tool cannot do its job on this folder, or None."""
+        return None
+
 
 RULES_DIR = Path(__file__).parent / "rules"
 RULES_IN_CONTAINER = "/rules"
-BUILTIN_RULE_FILES = ("sql-injection.yml",)
+BUILTIN_RULE_FILES = ("sql-injection.yml", "docker-compose.yml")
 
 
 @dataclass
 class ScanOptions:
     semgrep_configs: tuple[str, ...] = ("p/security-audit", "p/owasp-top-ten")
     excludes: tuple[str, ...] = ()
-    builtin_rules: bool = True  # polyscan's own rules (SQL injection)
+    builtin_rules: bool = True  # polyscan's own rules (SQL injection, Docker Compose)
+    history: bool = False  # also look for secrets in old commits
 
 
 class Semgrep(Tool):
@@ -235,7 +288,7 @@ class Semgrep(Tool):
             "semgrep",
             "semgrep/semgrep",
             parse_semgrep,
-            languages=frozenset(EXTENSIONS.values()),
+            languages=frozenset(EXTENSIONS.values()) | {"docker"},  # "docker": the Compose rules
             reports_errors=True,
         )
 
@@ -261,17 +314,20 @@ class Semgrep(Tool):
 
 
 class Gitleaks(Tool):
-    def __init__(self):
-        super().__init__(
-            "gitleaks", "gitleaks", "zricethezav/gitleaks:latest", parse_gitleaks, ok_codes=(0,)
-        )
+    """Secrets in the files as they are now (a deleted file is not seen)."""
 
-    @staticmethod
-    def _args(target: str) -> list[str]:
+    COMMAND = "dir"
+
+    def __init__(self, name: str = "gitleaks"):
+        super().__init__(
+            name, "gitleaks", "zricethezav/gitleaks:latest", parse_gitleaks, ok_codes=(0,)
+        )  # fmt: skip
+
+    def _args(self, target: str) -> list[str]:
         # --exit-code 0: finding secrets is a result, not a failure of the tool.
         # --report-path - : write the JSON report to stdout.
         return [
-            "dir", target, "--no-banner", "--redact", "--exit-code", "0",
+            self.COMMAND, target, "--no-banner", "--redact", "--exit-code", "0",
             "--report-format", "json", "--report-path", "-",
         ]  # fmt: skip
 
@@ -280,6 +336,28 @@ class Gitleaks(Tool):
 
     def docker_cmd(self, opts):
         return self._args(CONTAINER_ROOT)
+
+
+class GitleaksHistory(Gitleaks):
+    """Secrets in every commit, including files deleted long ago.
+
+    A key removed in a later commit is still readable by anyone who can read the
+    repository, so it must be treated as leaked and replaced."""
+
+    COMMAND = "git"
+
+    def __init__(self):
+        super().__init__("gitleaks-history")
+
+    def wanted(self, opts):
+        return opts.history
+
+    def precheck(self, root):
+        if not (root / ".git").exists():
+            return "no .git folder here: run it from the root of the repository"
+        if (root / ".git" / "shallow").exists():
+            return "shallow clone, old commits are missing: run `git fetch --unshallow` (in GitHub Actions: fetch-depth: 0)"
+        return None
 
 
 class OsvScanner(Tool):
@@ -319,5 +397,32 @@ class Bandit(Tool):
         raise NotImplementedError("bandit has no official Docker image")
 
 
+class Checkov(Tool):
+    """Misconfiguration in Dockerfiles, Kubernetes, Terraform and CI workflows.
+
+    Runs only when the project has such files (see detect.CONFIG_NAMES)."""
+
+    FRAMEWORKS = ("dockerfile", "kubernetes", "terraform", "helm", "github_actions")
+
+    def __init__(self):
+        super().__init__(
+            "checkov", "checkov", "bridgecrew/checkov", parse_checkov,
+            languages=frozenset({"docker", "terraform"}), reports_errors=True,
+        )  # fmt: skip
+
+    def _args(self, target: str) -> list[str]:
+        # --framework: only configuration checks. Secrets are Gitleaks' job, so
+        # leaving the default (all frameworks) would report them twice.
+        # --skip-download: no calls to the vendor's platform.
+        # exit code 1 only means "some check failed", like Semgrep.
+        return ["-d", target, "-o", "json", "--quiet", "--skip-download", "--framework", *self.FRAMEWORKS]
+
+    def local_cmd(self, target, opts):
+        return ["checkov"] + self._args(target)
+
+    def docker_cmd(self, opts):
+        return self._args(CONTAINER_ROOT)
+
+
 def all_tools() -> list[Tool]:
-    return [Semgrep(), Gitleaks(), OsvScanner(), Bandit()]
+    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), Checkov()]

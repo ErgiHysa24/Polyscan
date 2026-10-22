@@ -75,12 +75,13 @@ def to_terminal(result: ScanResult, limit: int = 30, stream=None) -> str:
     lines.append(f"Languages: {langs}")
     lines.append("")
     lines.append("Tools")
+    name_width = max([12] + [len(t.name) for t in result.tools])
     for t in result.tools:
         status = STATUS_TEXT.get(t.status, t.status)
         if t.status in (ERROR, UNAVAILABLE):
             status = paint(status, "1;31")
         extra = f"{len(t.findings)} findings, " if t.status == OK else ""
-        lines.append(f"  {t.name:<12} {status:<22} {extra}{_clean(t.detail)}")
+        lines.append(f"  {t.name:<{name_width}} {status:<22} {extra}{_clean(t.detail)}")
     lines.append("")
 
     c = counts(result)

@@ -1,0 +1,51 @@
+services:
+  web:
+    # ok: polyscan-compose-image-not-pinned
+    image: nginx:1.27.2
+    ports:
+      # ok: polyscan-compose-database-port-public
+      - "8080:80"
+    volumes:
+      # ok: polyscan-compose-docker-socket
+      - ./data:/data
+  api:
+    # ruleid: polyscan-compose-image-not-pinned
+    image: python:latest
+    # ruleid: polyscan-compose-host-network
+    network_mode: host
+    # ok: polyscan-compose-privileged
+    privileged: false
+    volumes:
+      # ruleid: polyscan-compose-docker-socket
+      - /var/run/docker.sock:/var/run/docker.sock
+  noversion:
+    # ruleid: polyscan-compose-image-not-pinned
+    image: redis
+  db:
+    image: mysql:8.4
+    # ruleid: polyscan-compose-privileged
+    privileged: true
+    environment:
+      # ruleid: polyscan-compose-hardcoded-secret
+      MYSQL_ROOT_PASSWORD: root
+      # ok: polyscan-compose-hardcoded-secret
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      # ok: polyscan-compose-hardcoded-secret
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      # ok: polyscan-compose-hardcoded-secret
+      MYSQL_DATABASE: app
+    ports:
+      # ruleid: polyscan-compose-database-port-public
+      - "3306:3306"
+      # ok: polyscan-compose-database-port-public
+      - "127.0.0.1:5432:5432"
+  worker:
+    image: app:1.0@sha256:0123456789abcdef
+    environment:
+      # ruleid: polyscan-compose-hardcoded-secret
+      - API_TOKEN=abc123
+      # ok: polyscan-compose-hardcoded-secret
+      - API_TOKEN=${API_TOKEN}
+secrets:
+  db_password:
+    file: ./db_password.txt
