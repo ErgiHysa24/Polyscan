@@ -131,17 +131,27 @@ jobs:
       - name: ZAP ran and found the planted weaknesses
         run: |
           python - <<'EOF2'
-          import json
+          import json, sys
           data = json.load(open("zap-report.json"))
           zap = next(t for t in data["tools"] if t["name"] == "zap")
-          print(zap)
-          rules = {f["message"].split(" (")[0] for f in data["findings"]}
-          print(sorted(rules))
-          assert data["kind"] == "site" and data["notes"] == [], "a local site must not carry the remote-target note"
-          assert zap["status"] == "ok", zap
+          rules = sorted({f["message"].split(" (")[0] for f in data["findings"]})
+          files = sorted({f["file"] for f in data["findings"]})
+          # The summary goes to an annotation too, so a failure can be understood without the full log.
+          print(f"::notice title=dast-summary::kind={data['kind']} notes={data['notes']} zap={zap['status']} {zap['detail'][:200]} rules={rules} files={files[:6]}")
+          problems = []
+          if data["kind"] != "site" or data["notes"]:
+              problems.append(f"a local site must not carry the remote-target note: {data['notes']}")
+          if zap["status"] != "ok":
+              problems.append(f"zap status: {zap}")
           for expected in ("Content Security Policy (CSP) Header Not Set", "Cookie No HttpOnly Flag", "Absence of Anti-CSRF Tokens"):
-              assert expected in rules, f"ZAP did not report: {expected}"
-          assert all(f["file"].startswith("http://localhost:8000") for f in data["findings"]), "the address shown must be the one typed"
+              if expected not in rules:
+                  problems.append(f"ZAP did not report: {expected}")
+          wrong = [f for f in files if not f.startswith("http://localhost:8000")]
+          if wrong:
+              problems.append(f"addresses other than the one typed: {wrong[:5]}")
+          if problems:
+              print("::error title=dast-check::" + " | ".join(problems)[:1500])
+              sys.exit(1)
           EOF2
       - name: A site that does not answer is an error, never a clean result
         run: |
