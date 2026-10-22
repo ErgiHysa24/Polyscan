@@ -189,7 +189,7 @@ Il comando `polyscan dast` rispetta queste regole **nel codice**, non solo nel t
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
 
-## Cosa è stato verificato (versione 0.2)
+## Cosa è stato verificato (versione 0.3)
 
 - **217 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
