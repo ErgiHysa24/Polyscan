@@ -1,0 +1,94 @@
+name: polyscan
+description: Run Semgrep, Gitleaks, OSV-Scanner and Bandit on a folder and publish one report.
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  path:
+    description: Folder to scan, relative to the repository root.
+    default: "."
+  fail-on:
+    description: Fail the job if a finding has this severity or higher (info, low, medium, high, critical, none).
+    default: high
+  mode:
+    description: auto, docker or local.
+    default: auto
+  exclude:
+    description: Comma separated folder or file patterns to ignore.
+    default: ""
+  semgrep-config:
+    description: Comma separated Semgrep rule packs or files. Empty uses the defaults.
+    default: ""
+  strict:
+    description: "true to also fail when a tool is missing, not only when it errors."
+    default: "false"
+
+outputs:
+  exit-code:
+    description: Exit code of polyscan (0 ok, 1 findings, 3 a check did not run).
+    value: ${{ steps.scan.outputs.exit-code }}
+  report-dir:
+    description: Folder holding the HTML, JSON and Markdown reports.
+    value: ${{ steps.scan.outputs.report-dir }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install polyscan
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: python -m pip install --quiet "$ACTION_PATH" bandit
+
+    - name: Scan
+      id: scan
+      shell: bash
+      # Inputs go through environment variables, never pasted into the script,
+      # so a value like `"; rm -rf ~` cannot become a command.
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_EXCLUDE: ${{ inputs.exclude }}
+        INPUT_SEMGREP: ${{ inputs.semgrep-config }}
+        INPUT_STRICT: ${{ inputs.strict }}
+      run: |
+        report_dir="$RUNNER_TEMP/polyscan-report"
+        mkdir -p "$report_dir"
+        args=(scan "$INPUT_PATH" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON"
+              --html "$report_dir/polyscan-report.html"
+              --json "$report_dir/polyscan-report.json"
+              --markdown "$report_dir/polyscan-summary.md")
+        IFS=',' read -ra items <<< "$INPUT_EXCLUDE"
+        for item in "${items[@]}"; do [ -n "$item" ] && args+=(--exclude "$item"); done
+        IFS=',' read -ra items <<< "$INPUT_SEMGREP"
+        for item in "${items[@]}"; do [ -n "$item" ] && args+=(--semgrep-config "$item"); done
+        [ "$INPUT_STRICT" = "true" ] && args+=(--strict)
+        set +e
+        polyscan "${args[@]}"
+        code=$?
+        set -e
+        [ -f "$report_dir/polyscan-summary.md" ] && cat "$report_dir/polyscan-summary.md" >> "$GITHUB_STEP_SUMMARY"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: polyscan-report
+        path: ${{ steps.scan.outputs.report-dir }}
+        if-no-files-found: warn
+
+    - name: Fail if polyscan failed
+      shell: bash
+      env:
+        CODE: ${{ steps.scan.outputs.exit-code }}
+      run: |
+        if [ "$CODE" != "0" ]; then
+          echo "polyscan exited with code $CODE (1 = findings, 2 = bad input, 3 = a check did not run)"
+          exit "$CODE"
+        fi

@@ -1,0 +1,57 @@
+{
+  "results": [
+    {
+      "source": { "path": "/src/javascript/package-lock.json", "type": "lockfile" },
+      "packages": [
+        {
+          "package": { "name": "lodash", "version": "4.17.15", "ecosystem": "npm" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-p6mc-m468-83gw",
+              "aliases": ["CVE-2020-8203"],
+              "summary": "Prototype Pollution in lodash",
+              "database_specific": { "severity": "HIGH" }
+            },
+            {
+              "id": "GHSA-35jh-r3h4-6jhm",
+              "aliases": ["CVE-2021-23337"],
+              "summary": "Command Injection in lodash",
+              "database_specific": { "severity": "HIGH" }
+            }
+          ],
+          "groups": [
+            { "ids": ["GHSA-p6mc-m468-83gw", "CVE-2020-8203"], "max_severity": "7.4" },
+            { "ids": ["GHSA-35jh-r3h4-6jhm", "CVE-2021-23337"], "max_severity": "9.8" }
+          ]
+        }
+      ]
+    },
+    {
+      "source": { "path": "/src/python/requirements.txt", "type": "lockfile" },
+      "packages": [
+        {
+          "package": { "name": "jinja2", "version": "2.10", "ecosystem": "PyPI" },
+          "vulnerabilities": [
+            {
+              "id": "GHSA-462w-v97r-4m45",
+              "aliases": ["CVE-2019-10906"],
+              "summary": "Jinja2 sandbox escape",
+              "database_specific": { "severity": "MODERATE" }
+            }
+          ],
+          "groups": [{ "ids": ["GHSA-462w-v97r-4m45", "CVE-2019-10906"] }]
+        }
+      ]
+    },
+    {
+      "source": { "path": "/src/rust/Cargo.lock", "type": "lockfile" },
+      "packages": [
+        {
+          "package": { "name": "time", "version": "0.1.43", "ecosystem": "crates.io" },
+          "vulnerabilities": [{ "id": "RUSTSEC-2020-0071", "summary": "Potential segfault in the time crate" }],
+          "groups": [{ "ids": ["RUSTSEC-2020-0071"] }]
+        }
+      ]
+    }
+  ]
+}
