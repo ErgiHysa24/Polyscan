@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0            # serve per cercare i segreti anche nei vecchi commit (history: true)
 
-      - uses: ErgiHysa24/polyscan@v0.4.0     # <-- blocca una versione; evita @main in produzione
+      - uses: ErgiHysa24/polyscan@v0.5.0     # <-- blocca una versione; evita @main in produzione
         with:
           # --- il codice
           history: "true"

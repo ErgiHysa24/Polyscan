@@ -198,7 +198,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0        # serve solo con history: true
-      - uses: ErgiHysa24/polyscan@v0.4.0
+      - uses: ErgiHysa24/polyscan@v0.5.0
         with:
           fail-on: high
           exclude: tests,examples
@@ -210,7 +210,7 @@ Il riepilogo appare nella pagina del job e i rapporti (HTML, JSON, Markdown) son
 Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action avvia la tua app, aspetta che risponda, la scansiona e la ferma, anche se la scansione fallisce:
 
 ```yaml
-      - uses: ErgiHysa24/polyscan@v0.4.0
+      - uses: ErgiHysa24/polyscan@v0.5.0
         with:
           target-url: http://localhost:8000
           start-command: docker compose up -d
@@ -300,7 +300,7 @@ Il comando `polyscan dast` rispetta queste regole **nel codice**, non solo nel t
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
 
-## Cosa è stato verificato (versione 0.4)
+## Cosa è stato verificato (versione 0.5)
 
 - **388 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.

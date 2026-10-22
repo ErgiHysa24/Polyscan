@@ -3,12 +3,14 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione è `0.x`, l'interfaccia può cambiare.
 
-## [Non rilasciato]
+## [0.5.0] - 2026-10-22
 
 ### Aggiunto
 - **Trivy**: vulnerabilità nelle immagini Docker nominate dal progetto (`FROM` dei Dockerfile e `image:` dei file Compose), solo gravità alta e critica, con la riga del file in cui cambiare il tag. Le immagini con variabili non sono controllabili e sono segnalate come tali.
-
 - **`polyscan ports`**: legge con `ss` le porte TCP/UDP in ascolto sulla macchina e segnala i servizi raggiungibili da altre reti (database, API di Docker, Telnet, RDP...) e le porte non previste (`--expect`). Non invia nulla in rete; solo Linux.
+
+### Modificato
+- Il campione di output reale di Trivy e di `ss` usato dai test viene ricavato dalla CI (`show-latest-pins` e il job `ports-check`).
 
 ## [0.4.0] - 2026-10-22
 
