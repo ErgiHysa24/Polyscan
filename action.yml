@@ -101,6 +101,22 @@ runs:
         mkdir -p "$report_dir"
         echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"
 
+    - name: Install cargo-audit (only when the project has a Cargo.lock)
+      if: ${{ inputs.scan-code == 'true' }}
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        # Compiled from source (about 5 minutes) at a fixed version; skipped when there is no Rust lockfile.
+        if find "$INPUT_PATH" -name Cargo.lock -not -path '*/target/*' -not -path '*/node_modules/*' | grep -q .; then
+          if command -v cargo > /dev/null; then
+            cargo install cargo-audit --locked --version 0.22.2 --quiet \
+              || echo "::warning::cargo-audit could not be installed: the Rust dependency check will be reported as not run"
+          else
+            echo "::warning::cargo is not installed: the Rust dependency check will be reported as not run"
+          fi
+        fi
+
     - name: Scan the code
       id: scan
       if: ${{ inputs.scan-code == 'true' }}

@@ -19,6 +19,8 @@ polyscan scan . --html report.html
 | Sito in esecuzione (comando `polyscan dast`) | [OWASP ZAP](https://www.zaproxy.org), baseline passiva | un sito web | solo Docker |
 | Configurazione sbagliata: `Dockerfile` (regole proprie) | Semgrep, con `polyscan/rules/dockerfile.yml` | Docker | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
+| Librerie JavaScript (seconda fonte) | `npm audit`, una volta per ogni `package-lock.json` | JavaScript / TypeScript | solo installato (serve `npm` e internet) |
+| Librerie Rust (seconda fonte) | `cargo-audit` (banca dati RustSec), una volta per ogni `Cargo.lock` | Rust | solo installato (`cargo install cargo-audit --locked`) e internet |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
 OSV-Scanner legge `requirements.txt`, `package-lock.json`, `pom.xml`, `composer.lock` e `Cargo.lock`. Senza questi file non può controllare le librerie: il rapporto lo dice.
@@ -209,6 +211,7 @@ Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da c
 | Immagini Docker (Semgrep, Gitleaks, OSV-Scanner, Checkov, ZAP) | digest `sha256`, con la versione accanto | `IMAGES` in `polyscan/tools.py` |
 | GitHub Actions (checkout, setup-python, upload-artifact) | hash del commit, con `# vX.Y.Z` in commento | `ci.yml`, `action.yml` |
 | Semgrep nella CI, Bandit nell'action | versione esatta (`==`) | `ci.yml`, `action.yml` |
+| cargo-audit nell'action | versione esatta (`--version 0.22.2 --locked`) | `action.yml` |
 
 `tests/test_pins.py` fa fallire la CI se qualcuno aggiunge un'immagine `latest`, un'Action con `@v4` o un `pip install` senza versione. `polyscan doctor` mostra la versione di ogni immagine.
 
@@ -240,7 +243,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.3)
 
-- **244 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **277 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
 - **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.
@@ -249,6 +252,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Limiti
 
+- **`npm audit` e `cargo-audit` guardano solo il file di blocco** (`package-lock.json`, `Cargo.lock`): non installano nulla e non eseguono script del progetto. Se una verifica non può avvenire (niente rete, `npm` o `cargo-audit` assenti, risposta illeggibile) il controllo risulta **fallito o non eseguito**, mai "pulito". Molte segnalazioni coincidono con quelle di OSV-Scanner (stesso avviso GHSA): compaiono due volte, una per strumento. Per RustSec la gravità è calcolata dal vettore CVSS v3 (la banca dati dà solo il vettore); se manca o è v4 la gravità è *media*. Gli avvisi "unmaintained/yanked" sono segnalati come *bassa*, ma il loro formato nell'output di cargo-audit è provato solo su dati scritti secondo la documentazione, non su un caso reale. Nell'action, `cargo-audit` viene compilato (circa 5 minuti) solo se c'è un `Cargo.lock`.
 - Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.
 - Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, `cargo audit`, `npm audit`) non sono ancora inclusi.

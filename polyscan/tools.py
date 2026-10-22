@@ -8,8 +8,10 @@ can be tested with saved output, without running the scanners.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -251,6 +253,153 @@ def parse_zap(text: str, root: str) -> list[Finding]:
     return findings
 
 
+NPM_SEVERITY = {"info": Severity.INFO, "low": Severity.LOW, "moderate": Severity.MEDIUM,
+                "high": Severity.HIGH, "critical": Severity.CRITICAL}  # fmt: skip
+
+
+def _lock_path(audit: dict) -> str:
+    folder = str(audit.get("dir") or ".").replace("\\", "/").strip("/")
+    name = str(audit.get("lockfile") or "package-lock.json")
+    return name if folder in ("", ".") else f"{folder}/{name}"
+
+
+def parse_npm_audit(text: str, root: str) -> list[Finding]:
+    """The merged output of polyscan.auditrun for npm (one `npm audit --json` per lockfile).
+
+    In npm's report each package lists WHY it is affected ("via"): either an advisory
+    (a dict) or just the name of another package (a string, the advisory is listed under
+    that one). Only the dicts are findings, so a problem in `body-parser` that also makes
+    `express` vulnerable is counted once."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "npm":
+        raise ValueError("this is not polyscan's npm audit output")
+    findings, seen = [], set()
+    for audit in data.get("audits") or []:
+        path = _lock_path(audit)
+        packages = (audit.get("report") or {}).get("vulnerabilities") or {}
+        for name, pkg in packages.items():
+            fix = pkg.get("fixAvailable")
+            if isinstance(fix, dict):
+                hint = f" Fix: update {fix.get('name', name)} to {fix.get('version', '?')}" + (
+                    " (breaking change)." if fix.get("isSemVerMajor") else "."
+                )
+            else:
+                hint = " Fix available." if fix else " No fix published yet."
+            for via in pkg.get("via") or []:
+                if not isinstance(via, dict):
+                    continue
+                url = str(via.get("url") or "")
+                rule = url.rstrip("/").rsplit("/", 1)[-1] if "/advisories/" in url else str(via.get("source", ""))
+                if (path, rule, via.get("name")) in seen:
+                    continue
+                seen.add((path, rule, via.get("name")))
+                title = " ".join(str(via.get("title") or "Known vulnerability").split())
+                findings.append(
+                    Finding(
+                        tool="npm-audit",
+                        severity=NPM_SEVERITY.get(str(via.get("severity")), Severity.MEDIUM),
+                        rule=rule,
+                        message=f"{via.get('name', name)} ({via.get('range', 'versions unknown')}): {title}.{hint}",
+                        file=path,
+                        line=0,
+                        category="dependency",
+                        language="javascript",
+                    )
+                )
+    return findings
+
+
+CVSS3_WEIGHTS = {
+    "AV": {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2},
+    "AC": {"L": 0.77, "H": 0.44},
+    "UI": {"N": 0.85, "R": 0.62},
+    "C": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "I": {"H": 0.56, "L": 0.22, "N": 0.0},
+    "A": {"H": 0.56, "L": 0.22, "N": 0.0},
+}  # fmt: skip
+
+
+def cvss3_score(vector: str) -> float | None:
+    """Base score (0-10) of a CVSS v3.0/v3.1 vector such as 'CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H'.
+
+    RustSec gives only the vector, not the number, so the number is computed with the
+    formula from the CVSS specification. Anything that is not a complete v3 vector gives None."""
+    try:
+        head, *parts = vector.split("/")
+        if head not in ("CVSS:3.0", "CVSS:3.1"):
+            return None
+        m = dict(part.split(":", 1) for part in parts)
+        changed = {"U": False, "C": True}[m["S"]]
+        privileges = {"N": 0.85, "L": 0.68 if changed else 0.62, "H": 0.5 if changed else 0.27}[m["PR"]]
+        w = CVSS3_WEIGHTS
+        iss = 1 - (1 - w["C"][m["C"]]) * (1 - w["I"][m["I"]]) * (1 - w["A"][m["A"]])
+        impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15 if changed else 6.42 * iss
+        exploit = 8.22 * w["AV"][m["AV"]] * w["AC"][m["AC"]] * privileges * w["UI"][m["UI"]]
+    except (KeyError, ValueError):
+        return None
+    if impact <= 0:
+        return 0.0
+    raw = min((1.08 if changed else 1.0) * (impact + exploit), 10)
+    return math.ceil(round(raw * 100000) / 10000) / 10  # "round up" to one decimal, as the spec defines it
+
+
+def severity_from_score(score: float | None) -> Severity:
+    if score is None:
+        return Severity.MEDIUM  # no usable score: neither alarm nor dismissal
+    if score >= 9.0:
+        return Severity.CRITICAL
+    if score >= 7.0:
+        return Severity.HIGH
+    if score >= 4.0:
+        return Severity.MEDIUM
+    return Severity.LOW if score > 0 else Severity.INFO
+
+
+# RustSec warnings are not exploitable bugs in the usual sense, but a crate nobody maintains
+# or a release that was withdrawn is something to know about.
+CARGO_WARNING_SEVERITY = {"unsound": Severity.MEDIUM, "unmaintained": Severity.LOW, "yanked": Severity.LOW}
+
+
+def parse_cargo_audit(text: str, root: str) -> list[Finding]:
+    """The merged output of polyscan.auditrun for cargo (one `cargo audit --json` per Cargo.lock)."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "cargo":
+        raise ValueError("this is not polyscan's cargo audit output")
+    findings = []
+    for audit in data.get("audits") or []:
+        path = _lock_path(audit)
+        report = audit.get("report") or {}
+        for item in (report.get("vulnerabilities") or {}).get("list") or []:
+            adv, pkg = item.get("advisory") or {}, item.get("package") or {}
+            patched = (item.get("versions") or {}).get("patched") or []
+            fix = f" Fixed in: {', '.join(map(str, patched))}." if patched else " No patched version yet."
+            findings.append(
+                Finding(
+                    tool="cargo-audit",
+                    severity=severity_from_score(cvss3_score(str(adv.get("cvss") or ""))),
+                    rule=str(adv.get("id", "")),
+                    message=f"{pkg.get('name', '?')} {pkg.get('version', '?')}: "
+                            f"{' '.join(str(adv.get('title') or 'Known vulnerability').split())}.{fix}",
+                    file=path, line=0, category="dependency", language="rust",
+                )
+            )  # fmt: skip
+        # "warnings" is {kind: [ {kind, package, advisory-or-null}, ... ]}
+        for kind, entries in (report.get("warnings") or {}).items():
+            for entry in entries or []:
+                adv, pkg = entry.get("advisory") or {}, entry.get("package") or {}
+                findings.append(
+                    Finding(
+                        tool="cargo-audit",
+                        severity=CARGO_WARNING_SEVERITY.get(str(kind), Severity.LOW),
+                        rule=str(adv.get("id") or kind),
+                        message=f"{pkg.get('name', '?')} {pkg.get('version', '?')} ({kind}): "
+                                f"{' '.join(str(adv.get('title') or kind).split())}.",
+                        file=path, line=0, category="dependency", language="rust",
+                    )
+                )  # fmt: skip
+    return findings
+
+
 CHECKOV_KINDS = {"dockerfile": "docker", "kubernetes": "kubernetes", "terraform": "terraform"}
 
 
@@ -483,6 +632,49 @@ class Bandit(Tool):
         raise NotImplementedError("bandit has no official Docker image")
 
 
+class NpmAudit(Tool):
+    """`npm audit` on every package-lock.json. Needs npm and the internet (npm's advisory service).
+
+    It reads the lockfile only: nothing is installed and no project script runs."""
+
+    def __init__(self):
+        super().__init__(
+            "npm-audit", "npm", None, parse_npm_audit,
+            ok_codes=(0,), skip_codes={4: "no package-lock.json found"}, languages=frozenset({"javascript"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.auditrun", "npm", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("npm audit has no Docker image here")
+
+
+class CargoAudit(Tool):
+    """`cargo-audit` on every Cargo.lock, against the RustSec advisory database.
+
+    Needs the cargo-audit program (`cargo install cargo-audit --locked`) and the internet
+    (it downloads the advisory database from GitHub). It reads the lockfile only."""
+
+    def __init__(self):
+        super().__init__(
+            "cargo-audit", "cargo-audit", None, parse_cargo_audit,
+            ok_codes=(0,), skip_codes={4: "no Cargo.lock found"}, languages=frozenset({"rust"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.auditrun", "cargo", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("cargo audit has no Docker image here")
+
+
 class Checkov(Tool):
     """Misconfiguration in Dockerfiles, Kubernetes, Terraform and CI workflows.
 
@@ -587,4 +779,4 @@ def site_tools() -> list[Tool]:
 
 
 def all_tools() -> list[Tool]:
-    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), Checkov()]
+    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), Checkov()]
