@@ -1,19 +1,17 @@
 name: polyscan
-description: Run Semgrep, Gitleaks, OSV-Scanner, Bandit and Checkov on a folder and publish one report.
+description: Run Semgrep, Gitleaks, OSV-Scanner, Bandit and Checkov on a folder, and optionally scan your running app with OWASP ZAP. One report.
 branding:
   icon: shield
   color: blue
 
 inputs:
+  # ---- the code
+  scan-code:
+    description: '"false" to skip the folder scan, for example when you only want the live-site scan.'
+    default: "true"
   path:
     description: Folder to scan, relative to the repository root.
     default: "."
-  fail-on:
-    description: Fail the job if a finding has this severity or higher (info, low, medium, high, critical, none).
-    default: high
-  mode:
-    description: auto, docker or local.
-    default: auto
   exclude:
     description: Comma separated folder or file patterns to ignore.
     default: ""
@@ -23,17 +21,53 @@ inputs:
   history:
     description: "true to also search old commits for secrets. The checkout step must use fetch-depth: 0, otherwise this check is reported as not run."
     default: "false"
+  # ---- the running app
+  target-url:
+    description: >-
+      Address of your running app, for example http://localhost:8000. When set, the app is scanned with OWASP ZAP
+      (passive checks, no attacks). Only your own app: see "Uso responsabile e autorizzazione" in the README.
+    default: ""
+  start-command:
+    description: >-
+      Command that starts your app, run from the repository root, for example "docker compose up -d" or
+      "python app.py". It may keep running (it is put in the background) or return when the app is up.
+      It is code from YOUR workflow: never build it from untrusted data such as a pull request title.
+    default: ""
+  stop-command:
+    description: Command that stops the app after the scan (for example "docker compose down"). Runs even if the scan fails.
+    default: ""
+  wait-timeout:
+    description: Seconds to wait for target-url to answer after start-command.
+    default: "60"
+  zap-minutes:
+    description: Minutes the ZAP crawler may run, 1 to 30.
+    default: "1"
+  allow-remote:
+    description: >-
+      "true" to scan a target that is NOT on the runner or a private network. Say true only if you own it or have
+      written authorization to test it. Anything else is refused.
+    default: "false"
+  # ---- both
+  fail-on:
+    description: Fail the job if a finding has this severity or higher (info, low, medium, high, critical, none).
+    default: high
+  mode:
+    description: auto, docker or local.
+    default: auto
   strict:
     description: "true to also fail when a tool is missing, not only when it errors."
     default: "false"
 
 outputs:
   exit-code:
-    description: Exit code of polyscan (0 ok, 1 findings, 3 a check did not run).
+    description: Exit code of the folder scan (0 ok, 1 findings, 3 a check did not run). Empty if skipped.
     value: ${{ steps.scan.outputs.exit-code }}
+  dast-exit-code:
+    description: Exit code of the live-site scan (same meaning). Empty if there was no target-url.
+    value: ${{ steps.dast.outputs.exit-code }}
   report-dir:
     description: Folder holding the HTML, JSON and Markdown reports.
-    value: ${{ steps.scan.outputs.report-dir }}
+    value: ${{ steps.prepare.outputs.report-dir }}
 
 runs:
   using: composite
@@ -48,8 +82,17 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: python -m pip install --quiet "$ACTION_PATH" bandit==1.9.4
 
-    - name: Scan
+    - name: Prepare
+      id: prepare
+      shell: bash
+      run: |
+        report_dir="$RUNNER_TEMP/polyscan-report"
+        mkdir -p "$report_dir"
+        echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"
+
+    - name: Scan the code
       id: scan
+      if: ${{ inputs.scan-code == 'true' }}
       shell: bash
       # Inputs go through environment variables, never pasted into the script,
       # so a value like `"; rm -rf ~` cannot become a command.
@@ -61,13 +104,12 @@ runs:
         INPUT_SEMGREP: ${{ inputs.semgrep-config }}
         INPUT_STRICT: ${{ inputs.strict }}
         INPUT_HISTORY: ${{ inputs.history }}
+        REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
       run: |
-        report_dir="$RUNNER_TEMP/polyscan-report"
-        mkdir -p "$report_dir"
         args=(scan "$INPUT_PATH" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON"
-              --html "$report_dir/polyscan-report.html"
-              --json "$report_dir/polyscan-report.json"
-              --markdown "$report_dir/polyscan-summary.md")
+              --html "$REPORT_DIR/polyscan-report.html"
+              --json "$REPORT_DIR/polyscan-report.json"
+              --markdown "$REPORT_DIR/polyscan-summary.md")
         IFS=',' read -ra items <<< "$INPUT_EXCLUDE"
         for item in "${items[@]}"; do [ -n "$item" ] && args+=(--exclude "$item"); done
         IFS=',' read -ra items <<< "$INPUT_SEMGREP"
@@ -78,22 +120,117 @@ runs:
         polyscan "${args[@]}"
         code=$?
         set -e
-        [ -f "$report_dir/polyscan-summary.md" ] && cat "$report_dir/polyscan-summary.md" >> "$GITHUB_STEP_SUMMARY"
+        [ -f "$REPORT_DIR/polyscan-summary.md" ] && cat "$REPORT_DIR/polyscan-summary.md" >> "$GITHUB_STEP_SUMMARY"
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
-        echo "report-dir=$report_dir" >> "$GITHUB_OUTPUT"
+
+    - name: Start the app
+      id: start
+      if: ${{ inputs.target-url != '' && inputs.start-command != '' }}
+      shell: bash
+      env:
+        INPUT_START: ${{ inputs.start-command }}
+      run: |
+        # The command runs in the background so that a server that never returns does not block
+        # the job. Its exit status is written to a file, so that a start that FAILS is noticed at once.
+        log="$RUNNER_TEMP/polyscan-app.log"
+        status="$RUNNER_TEMP/polyscan-app.status"
+        rm -f "$status"
+        nohup bash -c 'bash -c "$1"; echo $? > "$2"' _ "$INPUT_START" "$status" > "$log" 2>&1 &
+        echo "$!" > "$RUNNER_TEMP/polyscan-app.pid"
+        echo "log=$log" >> "$GITHUB_OUTPUT"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+    - name: Wait for the app to answer
+      if: ${{ inputs.target-url != '' }}
+      shell: bash
+      env:
+        INPUT_TARGET: ${{ inputs.target-url }}
+        INPUT_WAIT: ${{ inputs.wait-timeout }}
+        APP_LOG: ${{ steps.start.outputs.log }}
+        APP_STATUS: ${{ steps.start.outputs.status }}
+      run: |
+        case "$INPUT_WAIT" in ''|*[!0-9]*) echo "::error::wait-timeout must be a whole number of seconds"; exit 2;; esac
+        show_log() { [ -n "$APP_LOG" ] && [ -f "$APP_LOG" ] && { echo "--- last lines printed by the start command:"; tail -n 40 "$APP_LOG"; }; }
+        deadline=$((SECONDS + INPUT_WAIT))
+        while true; do
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$INPUT_TARGET" || true)
+          if [ -n "$code" ] && [ "$code" != "000" ]; then
+            echo "The app answered (HTTP $code) after about $((SECONDS - deadline + INPUT_WAIT)) seconds."
+            exit 0
+          fi
+          if [ -n "$APP_STATUS" ] && [ -f "$APP_STATUS" ] && [ "$(cat "$APP_STATUS")" != "0" ]; then
+            echo "::error::The start command failed (exit code $(cat "$APP_STATUS")) before the app answered."
+            show_log
+            exit 1
+          fi
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "::error::The app did not answer at $INPUT_TARGET within $INPUT_WAIT seconds."
+            show_log
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Scan the running app
+      id: dast
+      if: ${{ inputs.target-url != '' }}
+      shell: bash
+      env:
+        INPUT_TARGET: ${{ inputs.target-url }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_ZAP_MINUTES: ${{ inputs.zap-minutes }}
+        INPUT_ALLOW_REMOTE: ${{ inputs.allow-remote }}
+        REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
+      run: |
+        args=(dast "$INPUT_TARGET" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON" --minutes "$INPUT_ZAP_MINUTES"
+              --html "$REPORT_DIR/polyscan-dast-report.html"
+              --json "$REPORT_DIR/polyscan-dast-report.json"
+              --markdown "$REPORT_DIR/polyscan-dast-summary.md")
+        [ "$INPUT_STRICT" = "true" ] && args+=(--strict)
+        [ "$INPUT_ALLOW_REMOTE" = "true" ] && args+=(--allow-remote)
+        set +e
+        polyscan "${args[@]}"
+        code=$?
+        set -e
+        [ -f "$REPORT_DIR/polyscan-dast-summary.md" ] && cat "$REPORT_DIR/polyscan-dast-summary.md" >> "$GITHUB_STEP_SUMMARY"
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Stop the app
+      # Always: a failed scan must not leave the app running (matters on self-hosted runners).
+      if: ${{ always() && inputs.target-url != '' }}
+      shell: bash
+      env:
+        INPUT_STOP: ${{ inputs.stop-command }}
+      run: |
+        pidfile="$RUNNER_TEMP/polyscan-app.pid"
+        if [ -f "$pidfile" ]; then
+          pid=$(cat "$pidfile")
+          pkill -TERM -P "$pid" 2>/dev/null || true
+          kill -TERM "$pid" 2>/dev/null || true
+        fi
+        if [ -n "$INPUT_STOP" ]; then
+          bash -c "$INPUT_STOP" || echo "::warning::The stop command failed."
+        fi
 
     - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      if: ${{ always() }}
       with:
         name: polyscan-report
-        path: ${{ steps.scan.outputs.report-dir }}
+        path: ${{ steps.prepare.outputs.report-dir }}
         if-no-files-found: warn
 
     - name: Fail if polyscan failed
       shell: bash
       env:
-        CODE: ${{ steps.scan.outputs.exit-code }}
+        SCAN_CODE: ${{ steps.scan.outputs.exit-code }}
+        DAST_CODE: ${{ steps.dast.outputs.exit-code }}
       run: |
-        if [ "$CODE" != "0" ]; then
-          echo "polyscan exited with code $CODE (1 = findings, 2 = bad input, 3 = a check did not run)"
-          exit "$CODE"
-        fi
+        for pair in "code scan:$SCAN_CODE" "live-site scan:$DAST_CODE"; do
+          name=${pair%%:*}; code=${pair#*:}
+          if [ -n "$code" ] && [ "$code" != "0" ]; then
+            echo "polyscan ($name) exited with code $code (1 = findings, 2 = bad input or refused target, 3 = a check did not run)"
+            exit "$code"
+          fi
+        done

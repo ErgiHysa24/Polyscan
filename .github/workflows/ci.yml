@@ -178,3 +178,74 @@ jobs:
           [ "$code" = "2" ]
           grep -q -- "--allow-remote" refusal.txt
 
+
+  action-dast:
+    name: The action itself - start app, scan, stop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the action on the demo site
+        id: good
+        uses: ./
+        with:
+          scan-code: "false"
+          target-url: http://localhost:8000
+          start-command: python examples/vulnerable-web/server.py --host 0.0.0.0 --port 8000
+          fail-on: none
+      - name: The live-site report exists, and the app was stopped
+        if: always()
+        env:
+          REPORT_DIR: ${{ steps.good.outputs.report-dir }}
+          DAST_CODE: ${{ steps.good.outputs.dast-exit-code }}
+        run: |
+          ls -l "$REPORT_DIR"
+          python - <<'EOF2'
+          import json, os, subprocess, sys
+          problems = []
+          path = os.path.join(os.environ["REPORT_DIR"], "polyscan-dast-report.json")
+          try:
+              data = json.load(open(path))
+              zap = next(t for t in data["tools"] if t["name"] == "zap")
+              print(f"::notice title=action-dast::exit={os.environ['DAST_CODE']} zap={zap['status']} findings={len(data['findings'])}")
+              if zap["status"] != "ok" or not data["findings"]:
+                  problems.append(f"zap={zap}")
+          except Exception as e:
+              problems.append(f"report unreadable: {e!r}")
+          if os.environ["DAST_CODE"] != "0":
+              problems.append("dast-exit-code=" + os.environ["DAST_CODE"])
+          # stop step: nothing may still listen on 8000
+          if subprocess.run(["curl", "-s", "-o", "/dev/null", "--max-time", "3", "http://127.0.0.1:8000/"]).returncode == 0:
+              problems.append("the app still answers after the stop step")
+          if problems:
+              print("::error title=action-dast-check::" + " | ".join(problems)[:1500])
+              sys.exit(1)
+          EOF2
+      - name: A start command that fails must fail the job at once
+        id: badstart
+        continue-on-error: true
+        uses: ./
+        with:
+          scan-code: "false"
+          target-url: http://localhost:8001
+          start-command: echo "boom" >&2; exit 7
+          wait-timeout: "30"
+      - name: An app that never answers must fail the job after the timeout
+        id: silent
+        continue-on-error: true
+        uses: ./
+        with:
+          scan-code: "false"
+          target-url: http://localhost:8002
+          start-command: sleep 300
+          wait-timeout: "6"
+      - name: Both negative cases failed, as they must
+        env:
+          BAD: ${{ steps.badstart.outcome }}
+          SILENT: ${{ steps.silent.outcome }}
+          BAD_DAST: ${{ steps.badstart.outputs.dast-exit-code }}
+          SILENT_DAST: ${{ steps.silent.outputs.dast-exit-code }}
+        run: |
+          echo "::notice title=negative-cases::badstart=$BAD silent=$SILENT dast ran: '$BAD_DAST' '$SILENT_DAST'"
+          [ "$BAD" = "failure" ] && [ "$SILENT" = "failure" ]
+          # ZAP must not even have started when the app never came up
+          [ -z "$BAD_DAST" ] && [ -z "$SILENT_DAST" ]

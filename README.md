@@ -115,6 +115,8 @@ Un controllo che non gira non viene mai mostrato come "pulito": nel rapporto com
 
 ## GitHub Action
 
+Solo il codice:
+
 ```yaml
 # .github/workflows/security.yml
 name: Security
@@ -125,14 +127,50 @@ jobs:
   polyscan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0        # serve solo con history: true
       - uses: ErgiHysa24/polyscan@main
         with:
           fail-on: high
           exclude: tests,examples
+          history: "true"
 ```
 
-Il riepilogo appare nella pagina del job e il rapporto HTML è scaricabile come artifact (`polyscan-report`). Opzioni: `path`, `fail-on`, `mode`, `exclude`, `semgrep-config`, `strict`.
+Il riepilogo appare nella pagina del job e i rapporti (HTML, JSON, Markdown) sono scaricabili come artifact (`polyscan-report`).
+
+Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action avvia la tua app, aspetta che risponda, la scansiona e la ferma, anche se la scansione fallisce:
+
+```yaml
+      - uses: ErgiHysa24/polyscan@main
+        with:
+          target-url: http://localhost:8000
+          start-command: docker compose up -d
+          stop-command: docker compose down
+          wait-timeout: "90"
+          fail-on: high
+```
+
+| Opzione | Significato | Predefinito |
+|---|---|---|
+| `path`, `exclude`, `semgrep-config`, `history` | cosa scansionare nel codice | `.`, nessuna, regole di base, `false` |
+| `scan-code` | `"false"` salta la scansione del codice (solo sito) | `true` |
+| `target-url` | indirizzo dell'app da scansionare con ZAP | vuoto = nessuna scansione del sito |
+| `start-command` | comando che avvia l'app (può restare in esecuzione) | vuoto |
+| `stop-command` | comando che la ferma; gira sempre | vuoto |
+| `wait-timeout` | secondi di attesa perché l'app risponda | `60` |
+| `zap-minutes` | minuti di esplorazione di ZAP (1-30) | `1` |
+| `allow-remote` | `"true"` per un bersaglio non locale (vedi sotto) | `false` |
+| `fail-on`, `mode`, `strict` | soglia di fallimento, modalità, rigore | `high`, `auto`, `false` |
+
+Uscite: `exit-code` (codice), `dast-exit-code` (sito), `report-dir`.
+
+Cose da sapere:
+
+- **`start-command` ha la stessa fiducia di un passo `run:`** del tuo workflow: è codice tuo. Non costruirlo mai con dati non fidati (titolo di una pull request, nome di un branch). Per questo l'action passa ogni input tramite variabili d'ambiente e non li incolla mai negli script; un test (`tests/test_action.py`) controlla che sia sempre così.
+- Se il comando di avvio **fallisce** o l'app **non risponde** entro `wait-timeout`, il job fallisce subito e mostra le ultime righe scritte dall'app. ZAP non parte: un sito mai raggiunto non risulta mai "pulito".
+- Su Linux l'app deve ascoltare su `0.0.0.0` (non solo `127.0.0.1`), perché ZAP gira in un container. Con `docker compose` le porte pubblicate vanno bene.
+- Un bersaglio fuori dal runner o da una rete privata viene **rifiutato** a meno di `allow-remote: "true"`; vedi "Uso responsabile e autorizzazione".
 
 Per controllare anche le librerie nel tempo (nuove vulnerabilità escono anche se il codice non cambia) aggiungi un avvio settimanale:
 
@@ -191,7 +229,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.3)
 
-- **217 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **225 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
 - **Il controllo del bersaglio** (`polyscan/target.py`) ha 40 test, fra cui i trucchi `user@host`, i nomi che sembrano locali, gli indirizzi misti e IPv6; le protezioni principali sono state provate rompendole di proposito.
