@@ -228,6 +228,7 @@ jobs:
           scan-code: "false"
           target-url: http://localhost:8001
           start-command: echo "boom" >&2; exit 7
+          artifact-name: report-badstart
           wait-timeout: "30"
       - name: An app that never answers must fail the job after the timeout
         id: silent
@@ -237,6 +238,7 @@ jobs:
           scan-code: "false"
           target-url: http://localhost:8002
           start-command: sleep 300
+          artifact-name: report-silent
           wait-timeout: "6"
       - name: Both negative cases failed, as they must
         env:

@@ -17,7 +17,7 @@ def test_inputs_only_in_env_assignments():
         for expr in EXPR.findall(line):
             if expr.startswith("inputs."):
                 assert re.match(r"^\s+[A-Z][A-Z0-9_]*: \$\{\{ inputs\.[a-z-]+ \}\}\s*$", line) \
-                    or line.lstrip().startswith(("if:", "value:")), \
+                    or line.lstrip().startswith(("if:", "value:", "name:")), \
                     f"line {n}: input used outside an env assignment: {line.strip()}"
 
 

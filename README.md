@@ -161,6 +161,7 @@ Codice **e** applicazione in esecuzione (ZAP, solo controlli passivi). L'action 
 | `wait-timeout` | secondi di attesa perché l'app risponda | `60` |
 | `zap-minutes` | minuti di esplorazione di ZAP (1-30) | `1` |
 | `allow-remote` | `"true"` per un bersaglio non locale (vedi sotto) | `false` |
+| `artifact-name` | nome del rapporto caricato; cambialo se l'action gira più volte nella stessa esecuzione | `polyscan-report` |
 | `fail-on`, `mode`, `strict` | soglia di fallimento, modalità, rigore | `high`, `auto`, `false` |
 
 Uscite: `exit-code` (codice), `dast-exit-code` (sito), `report-dir`.
@@ -232,6 +233,7 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 - **225 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
+- **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.
 - **Il controllo del bersaglio** (`polyscan/target.py`) ha 40 test, fra cui i trucchi `user@host`, i nomi che sembrano locali, gli indirizzi misti e IPv6; le protezioni principali sono state provate rompendole di proposito.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.
 
