@@ -10,8 +10,9 @@ from pathlib import Path
 from . import __version__
 from .models import Severity
 from .report import to_html, to_json, to_markdown, to_terminal
-from .scanner import MODES, scan
-from .tools import ScanOptions, all_tools, pinned_version
+from .scanner import MODES, dast, scan
+from .target import TargetError, classify
+from .tools import ScanOptions, all_tools, pinned_version, site_tools
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -50,6 +51,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
     s.add_argument("--timeout", type=int, default=900, help="seconds allowed for each tool (default: 900)")
 
+    d = sub.add_parser(
+        "dast",
+        help="scan a RUNNING site (passive checks with OWASP ZAP). Only for sites you own or may test",
+    )
+    d.add_argument("url", help="address of the site, for example http://localhost:5000")
+    d.add_argument("--allow-remote", action="store_true",
+                   help="scan a site that is NOT on your own machine or network. Use it only if you own "
+                        "the site or have written authorization to test it")  # fmt: skip
+    d.add_argument("--minutes", type=int, default=1, help="minutes the crawler may run, 1 to 30 (default: 1)")
+    d.add_argument("--mode", choices=MODES, default="auto", help="ZAP runs only in Docker")
+    d.add_argument("--html", metavar="FILE", help="write an HTML report")
+    d.add_argument("--json", metavar="FILE", help="write a JSON report")
+    d.add_argument("--markdown", metavar="FILE", help="write a short Markdown summary")
+    d.add_argument("--fail-on", default="high", choices=[x.label for x in Severity] + ["none"],
+                   help="exit with 1 if a finding has this severity or higher (default: high)")  # fmt: skip
+    d.add_argument("--strict", action="store_true", help="also exit with 3 if a tool is missing")
+    d.add_argument("--limit", type=int, default=30, help="findings shown in the terminal (default: 30)")
+    d.add_argument("--timeout", type=int, default=900, help="seconds allowed for ZAP (default: 900)")
+
     sub.add_parser("doctor", help="show which tools are available on this computer")
     return p
 
@@ -58,9 +78,11 @@ def cmd_doctor() -> int:
     print(f"polyscan {__version__}")
     docker = shutil.which("docker")
     print(f"  {'docker':<16} {'found' if docker else 'not found'}")
-    for t in all_tools():
-        local = shutil.which(t.binary)
+    for t in [*all_tools(), *site_tools()]:
+        local = t.local_ok and shutil.which(t.binary)
         note = "found" if local else ("not found; will use Docker" if t.image and docker else "not found")
+        if not t.local_ok:
+            note = "Docker only" + ("" if docker else " (Docker not found)")
         version = pinned_version(t.image)
         pinned = f"  (Docker image pinned: {version})" if version else ""
         print(f"  {t.name:<16} {note}{pinned}")
@@ -88,6 +110,11 @@ def cmd_scan(args) -> int:
     )
     result = scan(root, args.mode, opts, only, args.timeout)
 
+    return _finish(args, result)
+
+
+def _finish(args, result) -> int:
+    """Print and save the reports, then pick the exit code (shared by scan and dast)."""
     print(to_terminal(result, args.limit))
     if args.json:
         Path(args.json).write_text(to_json(result), encoding="utf-8")
@@ -107,12 +134,40 @@ def cmd_scan(args) -> int:
     return EXIT_OK
 
 
+REFUSAL = """error: {host} ({addresses}) is not on your own machine or network.
+
+Scanning a site you do not own, or do not have written authorization to test, can be
+illegal and can disturb the people who run it. polyscan scans only your own machine
+and private network by default.
+
+If you OWN this site, or have that authorization in writing, run the command again
+with --allow-remote. See "Uso responsabile e autorizzazione" in the README."""
+
+
+def cmd_dast(args) -> int:
+    try:
+        target = classify(args.url)
+    except TargetError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    if not target.local and not args.allow_remote:
+        print(REFUSAL.format(host=target.host, addresses=", ".join(target.addresses)), file=sys.stderr)
+        return EXIT_USAGE
+    if not 1 <= args.minutes <= 30:
+        print("error: --minutes must be between 1 and 30", file=sys.stderr)
+        return EXIT_USAGE
+    result = dast(target, args.mode, ScanOptions(zap_minutes=args.minutes), args.timeout)
+    return _finish(args, result)
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")  # old Windows consoles cannot print every character
     args = build_parser().parse_args(argv)
-    return cmd_doctor() if args.command == "doctor" else cmd_scan(args)
+    if args.command == "doctor":
+        return cmd_doctor()
+    return cmd_dast(args) if args.command == "dast" else cmd_scan(args)
 
 
 if __name__ == "__main__":

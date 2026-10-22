@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from polyscan.scanner import build_command
-from polyscan.tools import IMAGES, ScanOptions, all_tools, image_ref, pinned_version
+from polyscan.tools import IMAGES, ScanOptions, all_tools, image_ref, pinned_version, site_tools
 
 ROOT = Path(__file__).parent.parent
 DIGEST_REF = re.compile(r"^[a-z0-9][a-z0-9./_-]*@sha256:[0-9a-f]{64}$")
@@ -20,7 +20,7 @@ FILES_WITH_STEPS = [*sorted((ROOT / ".github" / "workflows").glob("*.yml")), ROO
 
 
 def test_every_pinned_image_is_a_sha256_digest_with_a_version():
-    assert set(IMAGES) == {"semgrep", "gitleaks", "osv-scanner", "checkov"}
+    assert set(IMAGES) == {"semgrep", "gitleaks", "osv-scanner", "checkov", "zap"}
     for key, (name, version, digest) in IMAGES.items():
         assert DIGEST_REF.match(f"{name}@{digest}"), key
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"{key}: version {version!r}"
@@ -29,17 +29,17 @@ def test_every_pinned_image_is_a_sha256_digest_with_a_version():
 
 def test_every_tool_with_an_image_uses_a_pinned_one():
     pinned = {image_ref(k) for k in IMAGES}
-    with_image = [t for t in all_tools() if t.image]
-    assert {t.name for t in with_image} >= {"semgrep", "gitleaks", "osv-scanner", "checkov"}
+    with_image = [t for t in [*all_tools(), *site_tools()] if t.image]
+    assert {t.name for t in with_image} >= {"semgrep", "gitleaks", "osv-scanner", "checkov", "zap"}
     for tool in with_image:
         assert tool.image in pinned, f"{tool.name} uses {tool.image}"
         assert pinned_version(tool.image)
 
 
 def test_docker_command_runs_the_pinned_image(tmp_path):
-    for tool in all_tools():
+    for tool in [*all_tools(), *site_tools()]:
         if tool.image:
-            cmd = build_command(tool, "docker", tmp_path, ScanOptions())
+            cmd = build_command(tool, "docker", tmp_path, ScanOptions(target_url="http://host.docker.internal:8000"))
             assert tool.image in cmd and DIGEST_REF.match(cmd[cmd.index(tool.image)])
 
 

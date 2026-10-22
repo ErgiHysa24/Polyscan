@@ -11,9 +11,11 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .detect import EXTENSIONS
 from .models import Finding, Severity
+from .target import HOST_FROM_CONTAINER
 
 CONTAINER_ROOT = "/src"
 
@@ -28,6 +30,7 @@ IMAGES = {
     "semgrep": ("semgrep/semgrep", "1.181.1", "sha256:3db5c7af55eb1f512eac0abf0ab69a97b52c74b5e9a27314c221aee1a78d7ab2"),
     "gitleaks": ("zricethezav/gitleaks", "8.30.1", "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"),
     "osv-scanner": ("ghcr.io/google/osv-scanner", "2.7.0", "sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0"),
+    "zap": ("ghcr.io/zaproxy/zaproxy", "2.17.0", "sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6"),
     "checkov": ("bridgecrew/checkov", "3.3.30", "sha256:4b65e89f1fde292249fc0aa0d0db43302c036dfe39f7370b2d3517571082b894"),
 }  # fmt: skip
 
@@ -208,6 +211,45 @@ def parse_bandit(text: str, root: str) -> list[Finding]:
     return findings
 
 
+ZAP_RISK = {"0": Severity.INFO, "1": Severity.LOW, "2": Severity.MEDIUM, "3": Severity.HIGH}
+
+
+def parse_zap(text: str, root: str) -> list[Finding]:
+    """ZAP's JSON report: sites -> alerts -> instances (one per URL).
+
+    One finding is made per ALERT, pointing at the first URL, with the number of
+    URLs in the message: "CSP header not set" on 40 pages is one lesson, not 40.
+    `root` is the URL the person gave. Inside Docker, ZAP saw the host machine
+    as host.docker.internal, so that name is changed back."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("@programName") != "ZAP":
+        raise ValueError("this is not a ZAP report")
+    original = urlsplit(root).hostname or ""
+    if ":" in original:
+        original = f"[{original}]"  # IPv6 literal
+    findings = []
+    for site in data.get("site") or []:
+        for alert in site.get("alerts") or []:
+            instances = alert.get("instances") or []
+            uri = str((instances[0] if instances else {}).get("uri") or site.get("@name", ""))
+            if original:
+                uri = uri.replace(f"//{HOST_FROM_CONTAINER}", f"//{original}", 1)
+            count = int(alert.get("count") or len(instances) or 1)
+            name = " ".join(str(alert.get("name") or alert.get("alert") or "ZAP alert").split())
+            findings.append(
+                Finding(
+                    tool="zap",
+                    severity=ZAP_RISK.get(str(alert.get("riskcode")), Severity.MEDIUM),
+                    rule=str(alert.get("alertRef") or alert.get("pluginid") or ""),
+                    message=name + (f" ({count} URLs)" if count > 1 else ""),
+                    file=uri[:300],
+                    line=0,
+                    category="runtime",
+                )
+            )
+    return findings
+
+
 CHECKOV_KINDS = {"dockerfile": "docker", "kubernetes": "kubernetes", "terraform": "terraform"}
 
 
@@ -270,6 +312,10 @@ class Tool:
     skip_codes: dict[int, str] = field(default_factory=dict)
     languages: frozenset[str] | None = None  # None = any language
     reports_errors: bool = False  # output has an "errors" list worth surfacing
+    uses_folder: bool = True  # False for tools that scan a URL, not a folder
+    local_ok: bool = True  # False for tools that only run in Docker
+    report_file: str | None = None  # tool writes its JSON to this file instead of stdout
+    workdir: str = "/zap/wrk"  # where that file lives inside the container (rw)
 
     def applies(self, detected: dict[str, int]) -> bool:
         if self.languages is None:
@@ -285,6 +331,10 @@ class Tool:
 
     def mounts(self, opts: "ScanOptions") -> list[tuple[str, str]]:
         """Extra read-only folders (host path, container path) needed in Docker."""
+        return []
+
+    def docker_flags(self, opts: "ScanOptions") -> list[str]:
+        """Extra `docker run` options (before the image name)."""
         return []
 
     def wanted(self, opts: "ScanOptions") -> bool:
@@ -307,6 +357,8 @@ class ScanOptions:
     excludes: tuple[str, ...] = ()
     builtin_rules: bool = True  # polyscan's own rules (SQL, Compose, Dockerfile)
     history: bool = False  # also look for secrets in old commits
+    target_url: str = ""  # live-site scans: the URL as the tool will see it
+    zap_minutes: int = 1  # live-site scans: minutes the spider may run
 
 
 class Semgrep(Tool):
@@ -450,6 +502,39 @@ class Checkov(Tool):
 
     def docker_cmd(self, opts):
         return self._args(CONTAINER_ROOT)
+
+
+class Zap(Tool):
+    """OWASP ZAP baseline: browses a running site and checks what it answers.
+
+    It is passive: it sends ordinary requests (a spider following links) and
+    analyses the responses; it does not attack. Docker only, because ZAP is a large
+    Java program. The report goes to a file in a throw-away writable folder.
+    ZAP exits 0 (nothing), 1 (a rule set to FAIL) or 2 (warnings); 3 is a failure,
+    for example when the site does not answer."""
+
+    def __init__(self):
+        super().__init__(
+            "zap", "zap-baseline.py", image_ref("zap"), parse_zap,
+            ok_codes=(0, 1, 2), uses_folder=False, local_ok=False, report_file="zap-report.json",
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        raise NotImplementedError("ZAP runs only in Docker")
+
+    def docker_flags(self, opts):
+        # Lets the container reach a server on this computer (localhost inside a container is the container).
+        return ["--add-host", f"{HOST_FROM_CONTAINER}:host-gateway"]
+
+    def docker_cmd(self, opts):
+        if not opts.target_url:
+            raise ValueError("no target URL")
+        return ["zap-baseline.py", "-t", opts.target_url, "-J", self.report_file, "-m", str(opts.zap_minutes)]
+
+
+def site_tools() -> list[Tool]:
+    """Tools that scan a running site (used by `polyscan dast`)."""
+    return [Zap()]
 
 
 def all_tools() -> list[Tool]:

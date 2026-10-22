@@ -16,6 +16,7 @@ polyscan scan . --html report.html
 | Segreti nei vecchi commit (con `--history`) | Gitleaks, modalità `git` | qualsiasi | Docker o installato |
 | Configurazione sbagliata: Dockerfile, Kubernetes, Terraform, workflow GitHub | [Checkov](https://www.checkov.io) | file di configurazione | Docker o installato |
 | Configurazione sbagliata: `docker-compose.yml` | Semgrep, con `polyscan/rules/docker-compose.yml` | Compose | come Semgrep |
+| Sito in esecuzione (comando `polyscan dast`) | [OWASP ZAP](https://www.zaproxy.org), baseline passiva | un sito web | solo Docker |
 | Configurazione sbagliata: `Dockerfile` (regole proprie) | Semgrep, con `polyscan/rules/dockerfile.yml` | Docker | come Semgrep |
 | Librerie con vulnerabilità note | [OSV-Scanner](https://google.github.io/osv-scanner/) | tutti e 5 (file di dipendenze) | Docker o installato |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
@@ -37,6 +38,23 @@ Una **SQL injection** nasce quando una query viene costruita incollando testo (c
 Le query con segnaposto (`?`, `%s`, `.bind()`, `params![]`) e le query fatte solo di costanti non vengono segnalate. Le regole sono provate con esempi `ruleid`/`ok` in `tests/sql/`. Per spegnerle: `--no-builtin-rules`.
 
 Limiti: il seguire il valore funziona **dentro una funzione**; se la query viene costruita in una funzione e eseguita in un'altra, può sfuggire. Non guarda i file `.sql` e non capisce un ORM: controlla solo il codice dell'applicazione.
+
+## Scansione di un sito in esecuzione (`polyscan dast`)
+
+Gli altri controlli leggono il codice; questo prova **il sito acceso**, come farebbe chi lo visita da fuori, con [OWASP ZAP](https://www.zaproxy.org/docs/docker/baseline-scan/) in modalità *baseline*: un crawler segue i link per qualche minuto e ZAP analizza le risposte. Trova intestazioni di sicurezza mancanti (CSP, anti-clickjacking), cookie senza `HttpOnly`/`SameSite`, informazioni che trapelano, form senza token anti-CSRF. **Non attacca** e non trova una SQL injection o una XSS profonda: servirebbe la scansione attiva, che non c'è.
+
+```bash
+python examples/vulnerable-web/server.py --host 0.0.0.0    # sito demo con difetti di proposito
+polyscan dast http://localhost:8000 --html sito.html
+polyscan dast http://192.168.1.20:5000 --minutes 3          # un sito della tua rete
+```
+
+Richiede Docker acceso (ZAP gira solo lì). Come funziona e cosa sapere:
+- **Un risultato per tipo di problema**, non per pagina: "CSP header not set (40 URLs)" è una sola segnalazione, che mostra la prima pagina.
+- **Un sito che non risponde è un errore**, non un sito pulito: ZAP in quel caso esce con codice 3 senza rapporto, e polyscan lo segnala come controllo fallito (uscita 3).
+- **`localhost` dentro un container è il container stesso.** polyscan dà quindi a ZAP l'indirizzo `host.docker.internal`, che punta al tuo computer, e nel rapporto rimette quello che hai scritto tu. Su Linux il tuo sito deve ascoltare su `0.0.0.0` (non solo `127.0.0.1`); un sito che accetta solo certi nomi (`ALLOWED_HOSTS`, `SERVER_NAME`) può rifiutare quel nome.
+- Il rapporto di ZAP passa da una **cartella temporanea** creata da polyscan e cancellata dopo: è l'unico punto scrivibile, il tuo progetto non viene mai montato. Se la scansione supera il tempo, il container viene fermato.
+- Un sito dietro login si vede solo nelle pagine pubbliche (l'autenticazione non è ancora gestita); una pagina costruita quasi tutta in JavaScript può essere navigata male dal crawler normale.
 
 ## Configurazione e storia git
 
@@ -139,7 +157,7 @@ Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da c
 
 | Cosa | Come è fissato | Dove |
 |---|---|---|
-| Immagini Docker (Semgrep, Gitleaks, OSV-Scanner, Checkov) | digest `sha256`, con la versione accanto | `IMAGES` in `polyscan/tools.py` |
+| Immagini Docker (Semgrep, Gitleaks, OSV-Scanner, Checkov, ZAP) | digest `sha256`, con la versione accanto | `IMAGES` in `polyscan/tools.py` |
 | GitHub Actions (checkout, setup-python, upload-artifact) | hash del commit, con `# vX.Y.Z` in commento | `ci.yml`, `action.yml` |
 | Semgrep nella CI, Bandit nell'action | versione esatta (`==`) | `ci.yml`, `action.yml` |
 
@@ -162,7 +180,10 @@ Gli strumenti di oggi leggono **file sul tuo computer**: non contattano nessun s
 
 Scansionare sistemi altrui senza permesso può essere illegale. In Italia, per esempio, può rientrare nel reato di accesso abusivo a un sistema informatico (art. 615-ter del codice penale), e altri paesi hanno norme simili; "volevo solo provare" o "l'ho trovato aperto" non è una giustificazione. Questo testo non è un parere legale: se hai dubbi, chiedi a chi è responsabile del sistema o a un legale.
 
-Il comando per scansionare siti in esecuzione (non ancora presente) dovrà rispettare queste regole: di default accetterà solo `localhost` e indirizzi privati, chiederà un'opzione esplicita per qualsiasi altro indirizzo, e un'altra ancora per la scansione attiva, con l'avviso sopra.
+Il comando `polyscan dast` rispetta queste regole **nel codice**, non solo nel testo:
+- accetta senza altro solo `localhost` e indirizzi privati; l'indirizzo viene *risolto* e si guarda dove porta, non come è scritto (`localhost.example.com` e `http://localhost@sito-altrui.com` sembrano locali e non lo sono: il secondo viene rifiutato);
+- per qualsiasi altro sito si ferma **prima di mandare una sola richiesta**, spiega perché e chiede `--allow-remote`, cioè una tua dichiarazione che il sito è tuo o che hai l'autorizzazione scritta; se lo usi, il rapporto riporta una nota ben visibile;
+- fa solo scansione **passiva** (naviga e osserva, non attacca). Non esiste un'opzione per la scansione attiva: arriverà solo con altre protezioni.
 
 ## Aggiungere uno strumento
 
@@ -170,9 +191,10 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Cosa è stato verificato (versione 0.2)
 
-- **131 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
+- **217 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
-- **Provati dalla CI su GitHub** (job `demo-scan`, dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner. Il job fallisce se uno strumento non gira o non trova nulla nei progetti demo.
+- **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni.
+- **Il controllo del bersaglio** (`polyscan/target.py`) ha 40 test, fra cui i trucchi `user@host`, i nomi che sembrano locali, gli indirizzi misti e IPv6; le protezioni principali sono state provate rompendole di proposito.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.
 
 ## Limiti
@@ -182,5 +204,5 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 - Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, `cargo audit`, `npm audit`) non sono ancora inclusi.
 - Checkov parte solo se trova un `Dockerfile`, un file Compose o un `.tf`: un progetto con soli manifest Kubernetes non viene controllato.
 - Le regole Compose e Dockerfile leggono una riga alla volta: non seguono `extends`, le variabili di un file `.env`, i file inclusi né i comandi `RUN` spezzati su più righe con `\`.
-- Non c'è un controllo del sito in esecuzione (intestazioni HTTP, cookie, login) né del database stesso.
+- Il sito in esecuzione è controllato solo in modo passivo e senza login; il database stesso non è controllato.
 - Nessuno strumento trova tutto: un risultato pulito riduce il rischio, non lo azzera.

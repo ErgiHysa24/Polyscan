@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import secrets
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .detect import DEFAULT_EXCLUDES, detect_languages
 from .models import ERROR, OK, SKIPPED, UNAVAILABLE, Finding, ToolResult
-from .tools import CONTAINER_ROOT, ScanOptions, Tool, all_tools, scan_errors
+from .target import Target
+from .tools import CONTAINER_ROOT, ScanOptions, Tool, all_tools, scan_errors, site_tools
 
 MODES = ("auto", "docker", "local")
 
@@ -23,6 +26,8 @@ class ScanResult:
     languages: dict[str, int]
     tools: list[ToolResult] = field(default_factory=list)
     mode: str = "auto"
+    kind: str = "folder"  # folder | site
+    notes: list[str] = field(default_factory=list)  # facts the reader must see, e.g. "remote target"
 
     @property
     def findings(self) -> list[Finding]:
@@ -44,23 +49,34 @@ def _tail(text: str, limit: int = 400) -> str:
     return text[-limit:]
 
 
-def build_command(tool: Tool, how: str, root: Path, opts: ScanOptions) -> list[str]:
+def build_command(
+    tool: Tool, how: str, root: Path | str, opts: ScanOptions, workdir: Path | None = None, name: str | None = None
+) -> list[str]:
     """Return the argv list to run. Never goes through a shell."""
     if how == "local":
         return tool.local_cmd(str(root), opts)
     # Read-only mounts: a scanner can read the project but never change it.
-    mounts = [(str(root), CONTAINER_ROOT)] + tool.mounts(opts)
+    mounts = ([(str(root), CONTAINER_ROOT)] if tool.uses_folder else []) + tool.mounts(opts)
     cmd = ["docker", "run", "--rm"]
+    if name:
+        cmd += ["--name", name]  # so that a timed-out run can be stopped by name
     for host, inside in mounts:
         cmd += ["-v", f"{host}:{inside}:ro"]
-    return cmd + ["-w", CONTAINER_ROOT, tool.image, *tool.docker_cmd(opts)]
+    if workdir is not None:
+        # The only writable mount: a throw-away folder made by polyscan, never the project.
+        cmd += ["-v", f"{workdir}:{tool.workdir}:rw"]
+    cmd += tool.docker_flags(opts)
+    inside_dir = CONTAINER_ROOT if tool.uses_folder else tool.workdir
+    return cmd + ["-w", inside_dir, tool.image, *tool.docker_cmd(opts)]
 
 
 def choose_how(tool: Tool, mode: str) -> tuple[str | None, str]:
     """Decide local or docker for one tool. Returns (how, reason_if_none)."""
-    has_local = shutil.which(tool.binary) is not None
+    has_local = tool.local_ok and shutil.which(tool.binary) is not None
     has_docker = shutil.which("docker") is not None and tool.image is not None
     if mode == "local":
+        if not tool.local_ok:
+            return None, f"{tool.name} runs only in Docker; use --mode docker or auto"
         return ("local", "") if has_local else (None, f"{tool.binary} is not installed")
     if mode == "docker":
         if tool.image is None:
@@ -122,24 +138,55 @@ def add_snippets(findings: list[Finding], root: Path) -> list[Finding]:
     return out
 
 
-def run_tool(tool: Tool, how: str, root: Path, opts: ScanOptions, timeout: int) -> ToolResult:
-    cmd = build_command(tool, how, root, opts)
-    started = time.monotonic()
+def _stop_container(name: str) -> None:
+    """Best effort: `docker run` killed by a timeout leaves the container running."""
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-            check=False,
-            # Stops Git Bash on Windows from rewriting /src into a Windows path.
-            env={**os.environ, "MSYS_NO_PATHCONV": "1"},
-        )
-    except subprocess.TimeoutExpired:
-        return ToolResult(tool.name, ERROR, f"timed out after {timeout}s", seconds=time.monotonic() - started)
-    except OSError as exc:
-        return ToolResult(tool.name, ERROR, f"could not start: {exc}", seconds=time.monotonic() - started)
+        subprocess.run(["docker", "kill", name], capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def run_tool(tool: Tool, how: str, root: Path | str, opts: ScanOptions, timeout: int) -> ToolResult:
+    started = time.monotonic()
+    name = f"polyscan-{tool.name}-{secrets.token_hex(4)}" if how == "docker" else None
+    with tempfile.TemporaryDirectory(prefix="polyscan-") as tmp:
+        workdir = None
+        if tool.report_file and how == "docker":
+            workdir = Path(tmp)
+            workdir.chmod(0o777)  # the container's user is not ours; this folder holds only the report
+        cmd = build_command(tool, how, root, opts, workdir, name)
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=timeout,
+                check=False,
+                # Stops Git Bash on Windows from rewriting /src into a Windows path.
+                env={**os.environ, "MSYS_NO_PATHCONV": "1"},
+            )
+        except subprocess.TimeoutExpired:
+            if name:
+                _stop_container(name)
+            return ToolResult(tool.name, ERROR, f"timed out after {timeout}s", seconds=time.monotonic() - started)
+        except OSError as exc:
+            return ToolResult(tool.name, ERROR, f"could not start: {exc}", seconds=time.monotonic() - started)
+
+        output = proc.stdout
+        if tool.report_file and proc.returncode in tool.ok_codes:
+            # The tool wrote its report to a file. A missing file is a failure, never "no findings".
+            report = Path(tmp) / tool.report_file
+            try:
+                output = report.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                output = ""
+            if not output.strip():
+                return ToolResult(
+                    tool.name, ERROR,
+                    f"no report file (exit code {proc.returncode}): {_tail(proc.stdout or proc.stderr) or 'no output'}",
+                    seconds=time.monotonic() - started,
+                )  # fmt: skip
 
     seconds = time.monotonic() - started
     if proc.returncode in tool.skip_codes:
@@ -148,19 +195,20 @@ def run_tool(tool: Tool, how: str, root: Path, opts: ScanOptions, timeout: int) 
         return ToolResult(
             tool.name, ERROR, f"exit code {proc.returncode}: {_tail(proc.stderr or proc.stdout)}", seconds=seconds
         )
-    if not proc.stdout.strip():
+    if not output.strip():
         return ToolResult(
             tool.name, ERROR, f"no output (exit code {proc.returncode}): {_tail(proc.stderr) or 'no error text'}", seconds=seconds
         )
     try:
-        findings = tool.parse(proc.stdout, str(root))
-    except (ValueError, TypeError, AttributeError) as exc:
-        return ToolResult(tool.name, ERROR, f"unreadable output: {exc}", seconds=seconds)
+        findings = tool.parse(output, str(root))
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
+        return ToolResult(tool.name, ERROR, f"unreadable output: {exc!r}", seconds=seconds)
     findings = dedupe([f for f in findings if not is_excluded(f.file, opts.excludes)])
-    findings = add_snippets(findings, root)
+    if tool.uses_folder:
+        findings = add_snippets(findings, Path(root))
     detail = f"via {how}"
     if tool.reports_errors:
-        problems = scan_errors(proc.stdout)
+        problems = scan_errors(output)
         if problems:
             detail += f"; {problems} scan error(s): some files may not have been analyzed"
     return ToolResult(tool.name, OK, detail, findings, seconds)
@@ -182,7 +230,7 @@ def scan(
     languages = detect_languages(root, frozenset(opts.excludes))
     result = ScanResult(str(root), languages, mode=mode)
 
-    for tool in tools or all_tools():
+    for tool in all_tools() if tools is None else tools:
         if (only and tool.name not in only) or not tool.wanted(opts):
             continue
         if not tool.applies(languages):
@@ -198,4 +246,34 @@ def scan(
             result.tools.append(ToolResult(tool.name, UNAVAILABLE, reason))
             continue
         result.tools.append(run_tool(tool, how, root, opts, timeout))
+    return result
+
+
+def dast(
+    target: Target,
+    mode: str = "auto",
+    opts: ScanOptions | None = None,
+    timeout: int = 900,
+    tools: list[Tool] | None = None,
+) -> ScanResult:
+    """Scan a RUNNING site. Whether the target may be scanned (local, or remote with
+    the person's explicit statement) is decided by the caller, before this runs."""
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}")
+    # Inside a container "localhost" is the container itself, so the tool is given the
+    # address of the host machine instead; the report still shows the original URL.
+    opts = replace(opts or ScanOptions(), target_url=target.for_container())
+    result = ScanResult(target.url, {}, mode=mode, kind="site")
+    if not target.local:
+        result.notes.append(
+            "REMOTE TARGET: this site is not on your own machine or network. It was scanned because "
+            "--allow-remote was given, which means you stated that you own it or have written "
+            "authorization to test it."
+        )
+    for tool in site_tools() if tools is None else tools:
+        how, reason = choose_how(tool, mode)
+        if how is None:
+            result.tools.append(ToolResult(tool.name, UNAVAILABLE, reason))
+            continue
+        result.tools.append(run_tool(tool, how, target.url, opts, timeout))
     return result

@@ -34,6 +34,8 @@ def to_json(result: ScanResult) -> str:
     data = {
         "polyscan": __version__,
         "root": result.root,
+        "kind": result.kind,
+        "notes": result.notes,
         "languages": result.languages,
         "summary": {s.label: c.get(s, 0) for s in ORDER},
         "tools": [t.to_dict() for t in result.tools],
@@ -72,7 +74,9 @@ def to_terminal(result: ScanResult, limit: int = 30, stream=None) -> str:
     lines = []
     langs = ", ".join(f"{k} ({v})" for k, v in result.languages.items()) or "none detected"
     lines.append(f"polyscan {__version__}  -  {result.root}")
-    lines.append(f"Languages: {langs}")
+    lines.append(f"Target: {_clean(result.root)}" if result.kind == "site" else f"Languages: {langs}")
+    for note in result.notes:
+        lines.append(paint("NOTE: " + _clean(note), "1;33"))
     lines.append("")
     lines.append("Tools")
     name_width = max([12] + [len(t.name) for t in result.tools])
@@ -120,6 +124,7 @@ def to_markdown(result: ScanResult, limit: int = 20) -> str:
     lines.append("")
     if result.had_gaps:
         lines += ["> **Some checks did not run.** A clean result does not mean the code is safe.", ""]
+    lines += [f"> {_md(n, 400)}" for n in result.notes] + ([""] if result.notes else [])
     lines += ["| Tool | Status | Findings |", "|---|---|---|"]
     for t in result.tools:
         found = len(t.findings) if t.status == OK else "-"
@@ -212,7 +217,7 @@ def to_html(result: ScanResult) -> str:
         "A clean result does not mean the code is safe.</div>"
         if result.had_gaps
         else ""
-    )
+    ) + "".join(f'<div class="warn">{_e(n)}</div>' for n in result.notes)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -220,7 +225,7 @@ def to_html(result: ScanResult) -> str:
 <title>polyscan report</title><style>{CSS}</style></head>
 <body><main>
 <h1>polyscan report</h1>
-<p class="sub">{_e(result.root)}<br>{_e(when)} &middot; polyscan {_e(__version__)} &middot; languages: {_e(langs)}</p>
+<p class="sub">{_e(result.root)}<br>{_e(when)} &middot; polyscan {_e(__version__)} &middot; {_e("site scan" if result.kind == "site" else "languages: " + langs)}</p>
 <div class="cards">{cards}</div>{warn}
 <h2>Tools</h2>
 <div class="wrap"><table><tr><th>Tool</th><th>Status</th><th>Findings</th><th>Detail</th></tr>{tool_rows}</table></div>

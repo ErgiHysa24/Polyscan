@@ -109,3 +109,61 @@ jobs:
               print("PROBLEMS:", *problems, sep="\n  ")
               sys.exit(1)
           EOF
+
+  # Live-site scan with the real ZAP in Docker, on a demo site started here.
+  dast-demo:
+    name: Live site scan (ZAP) on the demo site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install .
+      - name: Start the demo site
+        run: |
+          # 0.0.0.0: on Linux the ZAP container reaches the host through the docker bridge, not through 127.0.0.1
+          python examples/vulnerable-web/server.py --host 0.0.0.0 --port 8000 &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8000/ >/dev/null && break; sleep 1; done
+          curl -fsI http://127.0.0.1:8000/ | head -1
+      - name: Scan the running site
+        run: polyscan dast http://localhost:8000 --json zap-report.json --fail-on none
+      - name: ZAP ran and found the planted weaknesses
+        run: |
+          python - <<'EOF2'
+          import json
+          data = json.load(open("zap-report.json"))
+          zap = next(t for t in data["tools"] if t["name"] == "zap")
+          print(zap)
+          rules = {f["message"].split(" (")[0] for f in data["findings"]}
+          print(sorted(rules))
+          assert data["kind"] == "site" and data["notes"] == [], "a local site must not carry the remote-target note"
+          assert zap["status"] == "ok", zap
+          for expected in ("Content Security Policy (CSP) Header Not Set", "Cookie No HttpOnly Flag", "Absence of Anti-CSRF Tokens"):
+              assert expected in rules, f"ZAP did not report: {expected}"
+          assert all(f["file"].startswith("http://localhost:8000") for f in data["findings"]), "the address shown must be the one typed"
+          EOF2
+      - name: A site that does not answer is an error, never a clean result
+        run: |
+          set +e
+          polyscan dast http://localhost:9 --json closed.json --fail-on none
+          code=$?
+          set -e
+          echo "exit code: $code"
+          [ "$code" = "3" ]
+          python - <<'EOF2'
+          import json
+          zap = next(t for t in json.load(open("closed.json"))["tools"] if t["name"] == "zap")
+          print(zap)
+          assert zap["status"] == "error", zap
+          EOF2
+      - name: Other people's sites are refused before anything is sent
+        run: |
+          set +e
+          polyscan dast http://93.184.216.34/ 2> refusal.txt
+          code=$?
+          set -e
+          cat refusal.txt
+          [ "$code" = "2" ]
+          grep -q -- "--allow-remote" refusal.txt
+
