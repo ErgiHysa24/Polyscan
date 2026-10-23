@@ -67,6 +67,46 @@ jobs:
           print("::notice title=trivy-total::" + str(total) + " vulnerabilities in python:3.9.0")
           print("::notice title=trivy-sample::" + json.dumps(d, separators=(",", ":")))
           PY
+  php-sample:
+    # Second look at the PHP tools: the full Psalm requirement message, Progpilot, and composer audit exit codes.
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: PHP tools
+        run: |
+          set +e
+          php -v | head -1
+          ps=$(gh api repos/vimeo/psalm/releases/latest --jq .tag_name)
+          curl -fsSL -o psalm.phar "https://github.com/vimeo/psalm/releases/download/$ps/psalm.phar"
+          php psalm.phar --version > psalm.err 2>&1
+          echo "::notice title=psalm-requirement::$(grep -A3 'mandatory requirements' psalm.err | tr '\n' ' ' | cut -c1-700)"
+          pp=$(gh api repos/designsecurity/progpilot/releases/latest --jq .tag_name)
+          echo "::notice title=progpilot-version::$pp"
+          gh release download "$pp" -R designsecurity/progpilot -p 'progpilot*.phar' -O progpilot.phar
+          ls -la progpilot.phar
+          echo "::notice title=progpilot-sha256::$(sha256sum progpilot.phar | cut -d' ' -f1)"
+          php progpilot.phar --help 2>&1 | head -c 700 | tr '\n' ' '
+          echo
+          php progpilot.phar examples/vulnerable-demo/php/index.php > pp.json 2> pp.err
+          echo "progpilot exit=$?"
+          echo "::notice title=progpilot-json::$(head -c 3000 pp.json | tr '\n' ' ')"
+          echo "::notice title=progpilot-err::$(head -c 400 pp.err | tr '\n' ' ')"
+          cd examples/vulnerable-demo/php
+          composer audit --format=json --locked > /tmp/ca.json 2>/tmp/ca.err
+          echo "::notice title=composer-audit-exit::$?"
+          python3 - <<'PY'
+          import json
+          d = json.load(open("/tmp/ca.json"))
+          print("::notice title=composer-keys::" + str(list(d)) + " abandoned=" + json.dumps(d.get("abandoned")))
+          adv = d["advisories"]["guzzlehttp/guzzle"]
+          print("::notice title=composer-count::%d advisories; keys=%s" % (len(adv), sorted(adv[0])))
+          print("::notice title=composer-sample::" + json.dumps({"advisories": {"guzzlehttp/guzzle": adv[:2]}, "abandoned": d.get("abandoned", {})}, separators=(",", ":")))
+          PY
+          rm composer.lock
+          composer audit --format=json --locked > /tmp/ca2.json 2>/tmp/ca2.err
+          echo "::notice title=composer-nolock::exit=$? out=$(head -c 300 /tmp/ca2.json | tr '\n' ' ') err=$(head -c 400 /tmp/ca2.err | tr '\n' ' ')"
   java-php-sample:
     # Newest SpotBugs, Find Security Bugs and Psalm with their sha256, and REAL output on the demo projects
     # (to be saved as test fixtures). Also tries `composer audit` on the demo lock file.
