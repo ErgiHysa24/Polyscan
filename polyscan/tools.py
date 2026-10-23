@@ -12,6 +12,7 @@ import math
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -210,6 +211,154 @@ def parse_bandit(text: str, root: str) -> list[Finding]:
                 category="secret" if is_secret else "code",
                 language="python",
                 snippet="[secret redacted]" if is_secret else str(r.get("code", "")).strip(),
+            )
+        )
+    return findings
+
+
+COMPOSER_SEVERITY = {"low": Severity.LOW, "medium": Severity.MEDIUM, "high": Severity.HIGH, "critical": Severity.CRITICAL}
+
+
+def parse_composer_audit(text: str, root: str) -> list[Finding]:
+    """The merged output of polyscan.auditrun for composer (one `composer audit --locked` per composer.lock).
+
+    Composer lists advisories per package; a package that its author abandoned is listed too
+    (`abandoned`: package -> suggested replacement or null). A package without a severity
+    in the advisory is MEDIUM, never silently dropped."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "composer":
+        raise ValueError("this is not polyscan's composer audit output")
+    findings, seen = [], set()
+    for audit in data.get("audits") or []:
+        path = _lock_path({**audit, "lockfile": audit.get("lockfile") or "composer.lock"})
+        report = audit.get("report") or {}
+        advisories = report.get("advisories") or {}
+        for package, items in (advisories.items() if isinstance(advisories, dict) else []):
+            for adv in items or []:
+                rule = str(adv.get("cve") or adv.get("advisoryId") or "unknown-advisory")
+                if (path, rule, package) in seen:
+                    continue
+                seen.add((path, rule, package))
+                title = " ".join(str(adv.get("title") or "Known vulnerability").split())
+                link = adv.get("link")
+                findings.append(
+                    Finding(
+                        tool="composer-audit",
+                        severity=COMPOSER_SEVERITY.get(str(adv.get("severity")).lower(), Severity.MEDIUM),
+                        rule=rule,
+                        message=f"{package} ({adv.get('affectedVersions', 'versions unknown')}): {title}."
+                        + (f" {link}" if link else ""),
+                        file=path,
+                        line=0,
+                        category="dependency",
+                        language="php",
+                    )
+                )
+        abandoned = report.get("abandoned") or {}
+        for package, replacement in (abandoned.items() if isinstance(abandoned, dict) else []):
+            hint = f"use {replacement} instead" if replacement else "no replacement is suggested"
+            findings.append(
+                Finding("composer-audit", Severity.LOW, "abandoned-package", f"{package} is abandoned: {hint}.",
+                        path, 0, "dependency", "php")  # fmt: skip
+            )
+    return findings
+
+
+# Weaknesses where attacker-controlled input reaches something dangerous: at least HIGH.
+INJECTION_CWES = {"22", "78", "89", "94", "95", "98", "502", "611", "918"}
+
+
+def parse_progpilot(text: str, root: str) -> list[Finding]:
+    """polyscan.sastrun's output for Progpilot: its taint findings plus the files it could not parse.
+
+    Progpilot says WHERE untrusted data comes from (source) and where it ends up (sink), which is
+    the useful part of the message. A file that does not parse is reported as INFO, because
+    Progpilot itself would have skipped it without a word."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "progpilot":
+        raise ValueError("this is not polyscan's progpilot output")
+    findings = []
+    for r in data.get("results") or []:
+        cwe = str(r.get("vuln_cwe", "")).replace("CWE_", "")
+        src = r.get("source_name")
+        src = ", ".join(str(x) for x in src) if isinstance(src, list) else str(src or "user input")
+        line = r.get("sink_line", 0)
+        findings.append(
+            Finding(
+                tool="progpilot",
+                severity=Severity.HIGH if cwe in INJECTION_CWES else Severity.MEDIUM,
+                rule=str(r.get("vuln_name", "taint")).strip(),
+                message=f"Untrusted data ({src}) reaches {r.get('sink_name', 'a dangerous function')}"
+                + (f" (CWE-{cwe})" if cwe.isdigit() else ""),
+                file=rel_path(str(r.get("sink_file", "")), root),
+                line=int(line) if isinstance(line, int) or str(line).isdigit() else 0,
+                category="code",
+                language="php",
+            )
+        )
+    for name in data.get("unparsed") or []:
+        findings.append(
+            Finding("progpilot", Severity.INFO, "not-analyzed",
+                    "Progpilot could not analyze this file (PHP syntax error or unreadable): it was NOT checked.",
+                    str(name), 0, "code", "php")  # fmt: skip
+        )
+    return findings
+
+
+def _java_source(root: str, sourcepath: str, cache: dict) -> str:
+    """The project file that a compiled class came from: SpotBugs only knows 'com/x/App.java'."""
+    if "index" not in cache:
+        index: dict[str, list[str]] = {}
+        base = Path(root)
+        for here, dirs, files in os.walk(base, followlinks=False):
+            dirs[:] = [d for d in dirs if d not in (".git", "node_modules")]
+            for name in files:
+                if name.endswith(".java"):
+                    index.setdefault(name, []).append((Path(here) / name).relative_to(base).as_posix())
+        cache["index"] = index
+    wanted = sourcepath.replace("\\", "/")
+    for candidate in sorted(cache["index"].get(wanted.rsplit("/", 1)[-1], [])):
+        if candidate == wanted or candidate.endswith("/" + wanted):
+            return candidate
+    return wanted
+
+
+def parse_spotbugs(text: str, root: str) -> list[Finding]:
+    """SpotBugs XML with the Find Security Bugs plugin. Only the SECURITY category is kept:
+    the rest are general code-quality bugs (resource leaks, style), not what a security scan is for.
+
+    Severity: SpotBugs' own priority (1 high, 2 medium, 3 low); injection weaknesses are raised to HIGH."""
+    if "<!DOCTYPE" in text or "<!ENTITY" in text:  # SpotBugs never writes these; refuse entity tricks
+        raise ValueError("unexpected DOCTYPE in SpotBugs output")
+    tree = ET.fromstring(text)
+    if tree.tag != "BugCollection":
+        raise ValueError("this is not a SpotBugs report")
+    findings, cache = [], {}
+    for bug in tree.findall("BugInstance"):
+        if bug.get("category") != "SECURITY":
+            continue
+        priority = bug.get("priority", "2")
+        cwe = bug.get("cweid", "")
+        severity = {"1": Severity.HIGH, "2": Severity.MEDIUM}.get(priority, Severity.LOW)
+        if cwe in INJECTION_CWES:
+            severity = max(severity, Severity.HIGH)
+        line_el = bug.find("SourceLine[@primary='true']")
+        if line_el is None:
+            line_el = bug.find(".//SourceLine")
+        sourcepath = (line_el.get("sourcepath") if line_el is not None else "") or ""
+        start = (line_el.get("start") if line_el is not None else "0") or "0"
+        short = " ".join((bug.findtext("ShortMessage") or "").split())
+        long = " ".join((bug.findtext("LongMessage") or short).split())
+        findings.append(
+            Finding(
+                tool="spotbugs",
+                severity=severity,
+                rule=bug.get("type", "unknown"),
+                message=f"{short}" + (f" (CWE-{cwe})" if cwe.isdigit() else "") + f": {long}",
+                file=_java_source(root, sourcepath, cache) if sourcepath else "",
+                line=int(start) if start.isdigit() else 0,
+                category="code",
+                language="java",
             )
         )
     return findings
@@ -727,6 +876,71 @@ class CargoAudit(Tool):
         raise NotImplementedError("cargo audit has no Docker image here")
 
 
+class ComposerAudit(Tool):
+    """`composer audit --locked` on every composer.lock (PHP). Needs composer and the internet (Packagist's
+    advisory database). It reads the lockfile only: nothing is installed and no project script runs."""
+
+    def __init__(self):
+        super().__init__(
+            "composer-audit", "composer", None, parse_composer_audit,
+            ok_codes=(0,), skip_codes={4: "no composer.lock found"}, languages=frozenset({"php"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.auditrun", "composer", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("composer audit has no Docker image here")
+
+
+class Progpilot(Tool):
+    """Taint analysis of PHP source (untrusted data -> dangerous function): SQL injection, XSS, command injection...
+
+    Needs the `progpilot` command (a launcher for progpilot.phar) and php. Every file is checked with
+    `php -l` first, because Progpilot stays silent on files it cannot read."""
+
+    def __init__(self):
+        super().__init__(
+            "progpilot", "progpilot", None, parse_progpilot,
+            ok_codes=(0,), skip_codes={4: "no PHP files found"}, languages=frozenset({"php"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.sastrun", "progpilot", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("progpilot has no official Docker image")
+
+
+class SpotBugs(Tool):
+    """SpotBugs with the Find Security Bugs plugin on COMPILED Java classes (Maven target/classes, Gradle build/classes).
+
+    SpotBugs reads bytecode, so the project must be built first; without compiled classes the tool
+    is reported as skipped, with the reason, never as clean."""
+
+    def __init__(self):
+        super().__init__(
+            "spotbugs", "spotbugs", None, parse_spotbugs,
+            ok_codes=(0,), skip_codes={4: "no compiled classes found: build the project first (mvn compile / gradle classes)"},
+            languages=frozenset({"java"}),
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.sastrun", "spotbugs", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("spotbugs has no official Docker image")
+
+
 class Trivy(Tool):
     """Known vulnerabilities in the Docker images a project uses (the operating system and packages inside).
 
@@ -858,4 +1072,4 @@ def site_tools() -> list[Tool]:
 
 
 def all_tools() -> list[Tool]:
-    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), Trivy(), Checkov()]
+    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), ComposerAudit(), Progpilot(), SpotBugs(), Trivy(), Checkov()]

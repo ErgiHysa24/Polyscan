@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BugCollection version="4.10.5" sequence="0" timestamp="1792747646641" analysisTimestamp="1792747653153" release="">
+  <Project projectName=""><Jar>classes</Jar><Plugin id="com.h3xstream.findsecbugs" enabled="true"/></Project>
+  <BugInstance type="COMMAND_INJECTION" priority="2" rank="12" abbrev="SECCI" category="SECURITY" instanceHash="x" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="78">
+    <ShortMessage>Potential Command Injection</ShortMessage>
+    <LongMessage>This usage of java/lang/Runtime.exec(Ljava/lang/String;)Ljava/lang/Process; can be vulnerable to Command Injection</LongMessage>
+    <Class classname="App" primary="true"><SourceLine classname="App" start="7" end="15" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[lines 7-15]</Message></SourceLine><Message>In class App</Message></Class>
+    <Method classname="App" name="run" primary="true"><SourceLine classname="App" start="14" end="15" sourcefile="App.java" sourcepath="App.java"/></Method>
+    <SourceLine classname="App" primary="true" start="14" end="14" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[line 14]</Message></SourceLine>
+    <String value="java/lang/Runtime.exec(Ljava/lang/String;)Ljava/lang/Process;" role="Sink method"><Message>Sink method java/lang/Runtime.exec(Ljava/lang/String;)Ljava/lang/Process;</Message></String>
+  </BugInstance>
+  <BugInstance type="OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE" priority="2" rank="20" abbrev="OBL" category="EXPERIMENTAL" instanceHash="x" instanceOccurrenceNum="0" instanceOccurrenceMax="0">
+    <ShortMessage>Method may fail to clean up stream or resource on checked exception</ShortMessage>
+    <LongMessage>App.find(Connection, String) may fail to clean up java.sql.Statement on checked exception</LongMessage>
+    <Class classname="App" primary="true"><SourceLine classname="App" start="7" end="15" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[lines 7-15]</Message></SourceLine><Message>In class App</Message></Class>
+    <Method classname="App" name="find" primary="true"><SourceLine classname="App" start="9" end="10" sourcefile="App.java" sourcepath="App.java"/></Method>
+    <SourceLine classname="App" primary="true" start="9" end="9" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[line 9]</Message></SourceLine>
+  </BugInstance>
+  <BugInstance type="SQL_INJECTION_JDBC" priority="2" rank="12" abbrev="SECSQLIJDBC" category="SECURITY" instanceHash="x" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="89">
+    <ShortMessage>Potential JDBC Injection</ShortMessage>
+    <LongMessage>This use of java/sql/Statement.executeQuery(Ljava/lang/String;)Ljava/sql/ResultSet; can be vulnerable to SQL injection (with JDBC)</LongMessage>
+    <Class classname="App" primary="true"><SourceLine classname="App" start="7" end="15" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[lines 7-15]</Message></SourceLine><Message>In class App</Message></Class>
+    <Method classname="App" name="find" primary="true"><SourceLine classname="App" start="9" end="10" sourcefile="App.java" sourcepath="App.java"/></Method>
+    <SourceLine classname="App" primary="true" start="10" end="10" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[line 10]</Message></SourceLine>
+    <String value="java/sql/Statement.executeQuery(Ljava/lang/String;)Ljava/sql/ResultSet;" role="Sink method"><Message>Sink method java/sql/Statement.executeQuery(Ljava/lang/String;)Ljava/sql/ResultSet;</Message></String>
+  </BugInstance>
+  <BugInstance type="SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE" priority="1" rank="10" abbrev="SQL" category="SECURITY" instanceHash="x" instanceOccurrenceNum="0" instanceOccurrenceMax="0" cweid="89">
+    <ShortMessage>Nonconstant string passed to execute or addBatch method on an SQL statement</ShortMessage>
+    <LongMessage>App.find(Connection, String) passes a nonconstant String to an execute or addBatch method on an SQL statement</LongMessage>
+    <Class classname="App" primary="true"><SourceLine classname="App" start="7" end="15" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[lines 7-15]</Message></SourceLine><Message>In class App</Message></Class>
+    <Method classname="App" name="find" primary="true"><SourceLine classname="App" start="9" end="10" sourcefile="App.java" sourcepath="App.java"/></Method>
+    <SourceLine classname="App" primary="true" start="10" end="10" sourcefile="App.java" sourcepath="App.java"><Message>At App.java:[line 10]</Message></SourceLine>
+  </BugInstance>
+</BugCollection>

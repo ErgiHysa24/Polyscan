@@ -74,6 +74,10 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Asset names
+        run: |
+          gh release view v1.3.0 -R designsecurity/progpilot --json assets --jq '.assets[]|"::notice title=pp-asset::\(.name) \(.size)"'
+          gh release view 4.10.5 -R spotbugs/spotbugs --json assets --jq '.assets[]|"::notice title=sb-asset::\(.name) \(.size)"'
       - name: Progpilot
         run: |
           set +e

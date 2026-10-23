@@ -5,7 +5,7 @@ several lockfiles (a backend and a frontend folder, say), and both audit tools l
 at ONE folder. polyscan runs each tool as one command, so this wrapper does the
 looping and prints a single JSON document that the parser reads.
 
-    python -m polyscan.auditrun npm|cargo FOLDER [--exclude PATTERN]...
+    python -m polyscan.auditrun npm|cargo|composer FOLDER [--exclude PATTERN]...
 
 Rules kept from the rest of polyscan:
   * no shell: every command is a list of arguments;
@@ -31,8 +31,11 @@ KINDS = {
     # kind: (lockfile name, command, key that proves the answer is a real report)
     "npm": ("package-lock.json", ["npm", "audit", "--json"], "vulnerabilities"),
     "cargo": ("Cargo.lock", ["cargo-audit", "audit", "--json"], "vulnerabilities"),
+    "composer": ("composer.lock", ["composer", "audit", "--format=json", "--locked"], "advisories"),
 }
-SKIP_DIRS = DEFAULT_EXCLUDES | {"target"}
+# Exit codes that still come with a real report. composer's is a bitmask: 1 = advisories, 2 = abandoned packages.
+REPORT_CODES = {"npm": (0, 1), "cargo": (0, 1), "composer": (0, 1, 2, 3)}
+SKIP_DIRS = DEFAULT_EXCLUDES | {"target"}  # (vendor is already in DEFAULT_EXCLUDES)
 EXIT_FAILED, EXIT_NO_LOCKFILE = 3, 4
 
 
@@ -63,7 +66,7 @@ def audit_one(kind: str, folder: Path, run=subprocess.run, timeout: int = 300) -
     if isinstance(data, dict) and isinstance(data.get("error"), dict):  # npm: {"error": {"code", "summary"}}
         e = data["error"]
         return None, f"{e.get('code', 'error')}: {' '.join(str(e.get('summary', '')).split())[:300]}"
-    if proc.returncode not in (0, 1) or not isinstance(data, dict) or key not in data:
+    if proc.returncode not in REPORT_CODES[kind] or not isinstance(data, dict) or key not in data:
         text = " ".join((proc.stderr or proc.stdout or "no output").split())[-300:]
         return None, f"exit code {proc.returncode}: {text}"
     return data, ""

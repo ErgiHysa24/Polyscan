@@ -1,0 +1,90 @@
+[
+ {
+  "source_name": [
+   "$name"
+  ],
+  "source_line": [
+   3
+  ],
+  "source_column": [
+   58
+  ],
+  "source_file": [
+   "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php"
+  ],
+  "sink_name": "query",
+  "sink_line": 4,
+  "sink_column": 91,
+  "sink_file": "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php",
+  "vuln_name": "sql_injection",
+  "vuln_cwe": "CWE_89",
+  "vuln_id": "932e50a61cfd67d5dc68315e0c2a6079e93c0707462a4bff3b8f0cad733e007d",
+  "vuln_type": "taint-style"
+ },
+ {
+  "source_name": [
+   "$_GET[\"name\"]"
+  ],
+  "source_line": [
+   5
+  ],
+  "source_column": [
+   188
+  ],
+  "source_file": [
+   "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php"
+  ],
+  "sink_name": "echo",
+  "sink_line": 5,
+  "sink_column": 177,
+  "sink_file": "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php",
+  "vuln_name": "xss",
+  "vuln_cwe": "CWE_79",
+  "vuln_id": "2bd72c943f305e5d49fa5d306d00b061670d35d856addc813fb9ed39e1817f83",
+  "vuln_type": "taint-style"
+ },
+ {
+  "source_name": [
+   "$_GET[\"code\"]"
+  ],
+  "source_line": [
+   6
+  ],
+  "source_column": [
+   267
+  ],
+  "source_file": [
+   "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php"
+  ],
+  "sink_name": "eval",
+  "sink_line": 6,
+  "sink_column": 262,
+  "sink_file": "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php",
+  "vuln_name": "eval code_injection",
+  "vuln_cwe": "CWE_95",
+  "vuln_id": "ffee6a38d47ceb8a000b3c51526367f8e65eb1bdadbef35923e81f2199fb0c7f",
+  "vuln_type": "taint-style"
+ },
+ {
+  "source_name": [
+   "$_GET[\"host\"]"
+  ],
+  "source_line": [
+   7
+  ],
+  "source_column": [
+   371
+  ],
+  "source_file": [
+   "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php"
+  ],
+  "sink_name": "system",
+  "sink_line": 7,
+  "sink_column": 354,
+  "sink_file": "/home/runner/work/Polyscan/Polyscan/examples/vulnerable-demo/php/index.php",
+  "vuln_name": "command_injection",
+  "vuln_cwe": "CWE_78",
+  "vuln_id": "cb5416602dab76e56d794117ad302fecf9c0aa867f98ef1c8f5348ffebeeb0d9",
+  "vuln_type": "taint-style"
+ }
+]
