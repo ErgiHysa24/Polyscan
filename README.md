@@ -23,6 +23,9 @@ polyscan scan . --html report.html
 | Porte di rete in ascolto su questa macchina (comando `polyscan ports`) | `ss` (non invia nulla in rete) | la macchina stessa | solo Linux |
 | Librerie JavaScript (seconda fonte) | `npm audit`, una volta per ogni `package-lock.json` | JavaScript / TypeScript | solo installato (serve `npm` e internet) |
 | Librerie Rust (seconda fonte) | `cargo-audit` (banca dati RustSec), una volta per ogni `Cargo.lock` | Rust | solo installato (`cargo install cargo-audit --locked`) e internet |
+| Librerie PHP (seconda fonte) | `composer audit --locked`, una volta per ogni `composer.lock` | PHP | solo installato (serve `composer` e internet) |
+| Codice PHP: da dove entra un dato non fidato e dove arriva (SQL injection, XSS, comandi, `eval`...) | [Progpilot](https://github.com/designsecurity/progpilot) (analisi "taint") | PHP | solo installato (serve `php`) |
+| Codice Java, in più: iniezioni, crittografia debole, deserializzazione... | [SpotBugs](https://spotbugs.github.io) con il plugin [Find Security Bugs](https://find-sec-bugs.github.io) | Java | solo installato; **legge le classi compilate**, quindi il progetto va prima compilato (`mvn compile`, `gradle classes`) |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
 OSV-Scanner legge `requirements.txt`, `package-lock.json`, `pom.xml`, `composer.lock` e `Cargo.lock`. Senza questi file non può controllare le librerie: il rapporto lo dice.
@@ -271,6 +274,7 @@ Un'etichetta come `latest` o `v4` può essere spostata su contenuto diverso da c
 | Trivy | immagine per digest (`IMAGES`) | `polyscan/tools.py` |
 | Semgrep nella CI, Bandit nell'action | versione esatta (`==`) | `ci.yml`, `action.yml` |
 | cargo-audit nell'action | versione esatta (`--version 0.22.2 --locked`) | `action.yml` |
+| Progpilot, SpotBugs, Find Security Bugs nell'action | versione esatta e **sha256 controllato** prima dell'uso (se non coincide il file viene scartato) | `action.yml` |
 
 `tests/test_pins.py` fa fallire la CI se qualcuno aggiunge un'immagine `latest`, un'Action con `@v4` o un `pip install` senza versione. `polyscan doctor` mostra la versione di ogni immagine.
 
@@ -300,11 +304,12 @@ Il comando `polyscan dast` rispetta queste regole **nel codice**, non solo nel t
 
 In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasforma l'output JSON in oggetti `Finding`, una classe con `local_cmd` e `docker_cmd`, e aggiungila a `all_tools()`. Salva un output vero in `tests/fixtures/` e scrivi il test del parser.
 
-## Cosa è stato verificato (versione 0.5)
+## Cosa è stato verificato (versione 0.5, più Java/PHP non ancora rilasciati)
 
 - **390 test** (parser, rilevamento, esecuzione, rapporti, regole SQL e Compose, storia git). Alcune difese sono state provate rompendole di proposito (escape dell'HTML, segreti nascosti, output vuoto, regole SQL e Compose) per vedere che i test falliscano.
 - **Provati con gli strumenti veri** sulla macchina di sviluppo: Semgrep, Gitleaks (cartella e storia), Bandit, Checkov. Le fixture in `tests/fixtures/` sono output reale, ridotto nel numero di risultati; `osv.json` è scritto a mano sullo schema documentato.
 - **Provati dalla CI su GitHub** (dove Docker e le banche dati sono raggiungibili): la modalità Docker e OSV-Scanner (job `demo-scan`, che fallisce se uno strumento non gira o non trova nulla nei progetti demo) e **ZAP** (job `dast-demo`: avvia il sito demo, lo scansiona, controlla che i difetti inseriti vengano trovati, che una porta chiusa dia un errore e che un sito altrui venga rifiutato). Il file `tests/fixtures/zap.json` è un rapporto vero di ZAP 2.17.0, ridotto a 5 segnalazioni. Anche `trivy.json` è output vero (Trivy 0.76.1 su `python:3.9.0`, ridotto a 2 vulnerabilità) e il job `demo-scan` prova che Trivy gira davvero nella CI.
+- **Java e PHP**: `composer-audit.json` e `progpilot.json` sono output veri ottenuti dalla CI; `spotbugs.xml` ha i valori veri (tipi, priorità, CWE, righe, messaggi) ma è stato **ricomposto dai frammenti stampati** perché le annotazioni di GitHub sono limitate a 4096 caratteri (vedi `tests/fixtures/README.md`). Il job `demo-scan` compila il demo Java e richiede che tutti e tre gli strumenti girino e trovino qualcosa.
 - **L'action stessa** è provata dalla CI (job `action-dast`): avvia il sito demo, lo scansiona con ZAP, lo ferma; e due casi d'errore (comando di avvio che fallisce, app che non risponde) devono far fallire il job senza lanciare ZAP.
 - **Il controllo del bersaglio** (`polyscan/target.py`) ha 40 test, fra cui i trucchi `user@host`, i nomi che sembrano locali, gli indirizzi misti e IPv6; le protezioni principali sono state provate rompendole di proposito.
 - Le regole del registro Semgrep (`p/security-audit`, `p/owasp-top-ten`) richiedono rete: cosa trovano su Java, PHP e Rust dipende da quelle regole.
@@ -315,7 +320,12 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 - **`npm audit` e `cargo-audit` guardano solo il file di blocco** (`package-lock.json`, `Cargo.lock`): non installano nulla e non eseguono script del progetto. Se una verifica non può avvenire (niente rete, `npm` o `cargo-audit` assenti, risposta illeggibile) il controllo risulta **fallito o non eseguito**, mai "pulito". Molte segnalazioni coincidono con quelle di OSV-Scanner (stesso avviso GHSA): compaiono due volte, una per strumento. Per RustSec la gravità è calcolata dal vettore CVSS v3 (la banca dati dà solo il vettore); se manca o è v4 la gravità è *media*. Gli avvisi "unmaintained/yanked" sono segnalati come *bassa*, ma il loro formato nell'output di cargo-audit è provato solo su dati scritti secondo la documentazione, non su un caso reale. Nell'action, `cargo-audit` viene compilato (circa 5 minuti) solo se c'è un `Cargo.lock`.
 - Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.
 - La prima scansione di un progetto vecchio darà molte segnalazioni: serve fare il triage, non è un errore del tool.
-- Strumenti specifici per linguaggio (SpotBugs per Java, PHPStan, audit per PHP/Java) non sono ancora inclusi: per JavaScript e Rust ci sono `npm audit` e `cargo-audit`.
+- **Java e PHP.**
+  - *SpotBugs analizza il bytecode, non i sorgenti*: se non trova classi compilate (`target/classes`, `build/classes/java/main`) il controllo risulta **saltato**, con il motivo scritto nel rapporto ("compila il progetto"), non pulito. Nel rapporto compaiono solo i difetti della categoria sicurezza di Find Security Bugs; gli altri (stile, perdite di risorse) sono scartati di proposito. Se il plugin non risulta caricato il controllo **fallisce** invece di sembrare pulito.
+  - *Progpilot tace quando non riesce a leggere un file*: provato davvero, un file con errore di sintassi o inesistente dà `[]` e codice di uscita 0, identico a "nessun problema". Per questo polyscan controlla prima ogni file con `php -l` e segnala come informativi quelli non analizzati ("NON controllato"). Progpilot segue i dati dentro e fra i file ma non conosce i framework (Laravel, Symfony): può perdere flussi che passano da lì. La gravità è decisa da polyscan (alta per i tipi di iniezione, media per il resto), non da Progpilot.
+  - *Psalm* (analisi taint più completa) non è incluso: la versione attuale richiede un PHP più recente di quello dei runner GitHub (8.3.6). Nel lavoro svolto qui è stato provato solo su questo e non è andato.
+  - `composer audit` legge solo `composer.lock` (nulla viene installato) e richiede internet; i pacchetti abbandonati sono segnalati come *bassa*. Come per npm, molte voci coincidono con OSV-Scanner.
+  - Nell'action Progpilot e SpotBugs vengono scaricati solo se il progetto ha file `.php` / `.java`; servono `php` e `java` sul runner (quelli di GitHub li hanno).
 - Checkov parte solo se trova un `Dockerfile`, un file Compose o un `.tf`: un progetto con soli manifest Kubernetes non viene controllato.
 - Le regole Compose e Dockerfile leggono una riga alla volta: non seguono `extends`, le variabili di un file `.env`, i file inclusi né i comandi `RUN` spezzati su più righe con `\`.
 - Il sito in esecuzione è controllato solo in modo passivo (nessun attacco: la scansione attiva non c'è). Il login funziona con un token o un cookie già pronti, non compilando il form di accesso; il database stesso non è controllato.

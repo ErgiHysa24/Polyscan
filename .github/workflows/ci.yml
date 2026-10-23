@@ -82,6 +82,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile the Java demo (SpotBugs reads compiled classes, not source)
+        run: |
+          mkdir -p examples/vulnerable-demo/java/target/classes
+          javac -d examples/vulnerable-demo/java/target/classes examples/vulnerable-demo/java/src/App.java
       - id: scan
         uses: ./
         with:

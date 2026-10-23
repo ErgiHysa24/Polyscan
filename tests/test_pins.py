@@ -92,3 +92,14 @@ def test_pip_installs_of_tools_name_an_exact_version():
             seen += 1
             assert re.fullmatch(r"[A-Za-z0-9_.-]+==\d+(\.\d+)*", arg), f"{name}:{number} `{arg}` has no exact version"
     assert seen >= 2  # semgrep in the CI, bandit in the action
+
+
+def test_every_download_in_the_action_is_checked_against_a_sha256():
+    text = (ROOT / "action.yml").read_text(encoding="utf-8")
+    fetches = re.findall(r"^\s+(?:&& )?fetch (\S+) \\\n\s+([0-9a-f]+) ", text, re.M)
+    assert len(fetches) >= 3  # progpilot, spotbugs, find security bugs
+    for url, digest in fetches:
+        assert re.fullmatch(r"[0-9a-f]{64}", digest), url
+        assert url.startswith("https://") and "latest" not in url, url
+    downloads = [l for l in text.splitlines() if "curl " in l and "-o /dev/null" not in l]  # not the app wait check
+    assert len(downloads) == 1 and "sha256sum -c" in downloads[0]  # the only download goes through fetch()

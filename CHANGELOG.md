@@ -3,6 +3,14 @@
 Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione è `0.x`, l'interfaccia può cambiare.
 
+## [Non rilasciato]
+
+### Aggiunto
+- **Java**: [SpotBugs](https://spotbugs.github.io) con il plugin Find Security Bugs, sulle classi compilate; solo la categoria sicurezza. Senza classi compilate il controllo è saltato con il motivo, e se il plugin non si carica fallisce.
+- **PHP**: analisi dei flussi di dati non fidati con [Progpilot](https://github.com/designsecurity/progpilot), e `composer audit --locked` per le librerie. Ogni file PHP è controllato con `php -l` prima, perché Progpilot non dice nulla sui file che non riesce a leggere; i file non analizzati sono segnalati.
+- Nell'action: installazione di Progpilot, SpotBugs e Find Security Bugs con versione fissa e sha256 controllato.
+- Nuovo modulo `polyscan.sastrun`; `polyscan.auditrun` conosce anche `composer` (codici di uscita 0-3 con rapporto valido).
+
 ## [0.5.0] - 2026-10-22
 
 ### Aggiunto
