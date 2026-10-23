@@ -72,6 +72,7 @@ jobs:
               problems.append("gitleaks-history did not run: " + str(status.get("gitleaks-history")))
           if problems:
               print("PROBLEMS:", *problems, sep="\n  ")
+              print("::error title=problems::" + " | ".join(problems)[:3500])
               sys.exit(1)
           EOF2
 
@@ -101,6 +102,7 @@ jobs:
           data = json.load(open(os.path.join(os.environ["REPORT_DIR"], "polyscan-report.json")))
           tools = {t["name"]: t for t in data["tools"]}
           print({k: (v["status"], v["findings"]) for k, v in tools.items()})
+          print("::notice title=tools::" + str({k: (v["status"], v["findings"]) for k, v in tools.items()}))
           problems = []
           for name, t in tools.items():
               if t["status"] != "ok":
@@ -121,6 +123,7 @@ jobs:
                   problems.append(f"{name} is empty")
           if problems:
               print("PROBLEMS:", *problems, sep="\n  ")
+              print("::error title=problems::" + " | ".join(problems)[:3500])
               sys.exit(1)
           EOF
 
