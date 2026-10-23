@@ -142,7 +142,7 @@ def test_sastrun_progpilot_file_names_never_become_options(tmp_path, monkeypatch
     seen = []
     sastrun.run_progpilot(tmp_path, run=lambda cmd, **k: (seen.append(cmd), proc("[]"))[1])
     assert all(str(tmp_path) in c[-1] for c in seen)  # always a full path, never "-rf.php"
-    assert seen[0][:3] == ["/usr/bin/php", "-l", "--"]
+    assert seen[0][:2] == ["/usr/bin/php", "-l"] and "--" not in seen[0]  # "php -l --" reads stdin instead of the file
 
 
 # ------------------------------------------------------------------ spotbugs
@@ -263,3 +263,28 @@ def test_a_failed_wrapper_is_an_error_and_exit_4_is_a_skip(monkeypatch, tmp_path
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: proc(wrap_pp(), "", 0))
     r = run_tool(Progpilot(), "local", tmp_path, ScanOptions(), 10)
     assert r.status == OK and len(r.findings) == 4
+
+
+@pytest.mark.skipif(not sastrun.shutil.which("php"), reason="php is not installed")
+def test_syntax_check_with_the_real_php(tmp_path):
+    good, bad = tmp_path / "good.php", tmp_path / "bad.php"
+    good.write_text("<?php echo 1;\n")
+    bad.write_text("<?php function (\n")
+    php = sastrun.shutil.which("php")
+    assert sastrun.syntax_ok(php, good, subprocess.run) is True
+    assert sastrun.syntax_ok(php, bad, subprocess.run) is False  # the fake-run tests above cannot prove this
+    assert sastrun.syntax_ok(php, tmp_path / "missing.php", subprocess.run) is False
+    code, data, _ = sastrun.run_progpilot(tmp_path, run=lambda cmd, **k: subprocess.run(cmd, **k) if cmd[1] == "-l" else proc("[]"))
+    assert code == 0 and data["unparsed"] == ["bad.php"] and data["files"] == 1
+
+
+def test_default_excludes_do_not_hide_compiled_classes(tmp_path):
+    make_classes(tmp_path, "target/classes")
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append(cmd)
+        return fake_spotbugs(SPOTBUGS)(cmd, **kw)
+
+    code, _, _ = sastrun.run_spotbugs(tmp_path, ("target", "build", "vendor"), run=run)  # what polyscan passes by default
+    assert code == 0 and seen[0][-1].endswith("classes")

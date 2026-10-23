@@ -81,6 +81,8 @@ def spotbugs_command(class_dirs: list[Path], output: str, plugin_jar: str | None
 
 def run_spotbugs(root: Path, excludes: tuple[str, ...] = (), run=subprocess.run, timeout: int = 900) -> tuple[int, str, str]:
     """Returns (exit code, XML text, problem text)."""
+    # polyscan adds "target" and "build" to the excludes (third-party/generated code), but compiled classes live there
+    excludes = tuple(e for e in excludes if e not in ("target", "build"))
     class_dirs = find_class_dirs(root, excludes)
     if not class_dirs:
         return EXIT_NOTHING, "", "no compiled classes found (build the project first, e.g. `mvn compile`)"
@@ -132,7 +134,9 @@ def _tail(text: str) -> str:
 def syntax_ok(php: str, file: Path, run, timeout: int = 60) -> bool:
     """`php -l` only parses the file. False when it does not parse (or cannot be checked)."""
     try:
-        proc = run([php, "-l", "--", str(file)], capture_output=True, text=True, errors="replace",
+        # No "--": php would read the program from standard input instead (found by running it for real).
+        # The path is absolute (it starts under the resolved root), so it cannot be read as an option.
+        proc = run([php, "-l", str(file)], capture_output=True, text=True, errors="replace", stdin=subprocess.DEVNULL,
                    timeout=timeout, check=False)  # fmt: skip
     except (OSError, subprocess.TimeoutExpired):
         return False

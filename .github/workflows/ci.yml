@@ -57,6 +57,19 @@ jobs:
           exclude: examples,tests
           fail-on: high
           history: "true"
+      - name: Show what was found (annotations are the only CI output that can be read afterwards)
+        if: always()
+        env:
+          REPORT_DIR: ${{ steps.scan.outputs.report-dir }}
+        run: |
+          python - <<'EOF3'
+          import json, os
+          data = json.load(open(os.path.join(os.environ["REPORT_DIR"], "polyscan-report.json")))
+          print("::notice title=dogfood-tools::" + str({t["name"]: (t["status"], t["findings"]) for t in data["tools"]}))
+          high = [f for f in data["findings"] if f["severity"] in ("high", "critical")]
+          for f in high[:10]:
+              print("::warning title=dogfood-high::" + f'{f["tool"]} {f["rule"]} {f["file"]}:{f["line"]} {f["message"]}'[:400])
+          EOF3
       # A check that did not run does not fail the job by itself, so look at the report.
       - name: Every check ran, history included
         env:
