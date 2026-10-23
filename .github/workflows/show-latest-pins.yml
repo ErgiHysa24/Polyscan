@@ -68,45 +68,40 @@ jobs:
           print("::notice title=trivy-sample::" + json.dumps(d, separators=(",", ":")))
           PY
   php-sample:
-    # Second look at the PHP tools: the full Psalm requirement message, Progpilot, and composer audit exit codes.
+    # Progpilot behaviour: several paths, a folder with vendor/, exit codes, an empty/clean file.
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: PHP tools
+      - name: Progpilot
         run: |
           set +e
-          php -v | head -1
-          ps=$(gh api repos/vimeo/psalm/releases/latest --jq .tag_name)
-          curl -fsSL -o psalm.phar "https://github.com/vimeo/psalm/releases/download/$ps/psalm.phar"
-          php psalm.phar --version > psalm.err 2>&1
-          echo "::notice title=psalm-requirement::$(grep -A3 'mandatory requirements' psalm.err | tr '\n' ' ' | cut -c1-700)"
-          pp=$(gh api repos/designsecurity/progpilot/releases/latest --jq .tag_name)
-          echo "::notice title=progpilot-version::$pp"
-          gh release download "$pp" -R designsecurity/progpilot -p 'progpilot*.phar' -O progpilot.phar
-          ls -la progpilot.phar
-          echo "::notice title=progpilot-sha256::$(sha256sum progpilot.phar | cut -d' ' -f1)"
-          php progpilot.phar --help 2>&1 | head -c 700 | tr '\n' ' '
-          echo
-          php progpilot.phar examples/vulnerable-demo/php/index.php > pp.json 2> pp.err
-          echo "progpilot exit=$?"
-          echo "::notice title=progpilot-json::$(head -c 3000 pp.json | tr '\n' ' ')"
-          echo "::notice title=progpilot-err::$(head -c 400 pp.err | tr '\n' ' ')"
-          cd examples/vulnerable-demo/php
-          composer audit --format=json --locked > /tmp/ca.json 2>/tmp/ca.err
-          echo "::notice title=composer-audit-exit::$?"
+          gh release download v1.3.0 -R designsecurity/progpilot -p 'progpilot*.phar' -O progpilot.phar
+          head -c 60 progpilot.phar | head -1
+          mkdir -p t/vendor/x t/src && cp examples/vulnerable-demo/php/index.php t/src/a.php && cp examples/vulnerable-demo/php/index.php t/vendor/x/b.php
+          printf '<?php\necho "hi";\n' > t/src/clean.php
+          printf '<?php\nfunction (\n' > t/src/broken.php
+          php progpilot.phar t/src/a.php t/src/clean.php > o1.json 2> e1.txt; echo "::notice title=pp-two-files::exit=$? count=$(python3 -c 'import json;print(len(json.load(open("o1.json"))))')"
+          php progpilot.phar t/src/clean.php > o2.json 2> e2.txt; echo "::notice title=pp-clean::exit=$? out=$(head -c 100 o2.json | tr '\n' ' ') err=$(head -c 200 e2.txt | tr '\n' ' ')"
+          php progpilot.phar t/src/broken.php > o3.json 2> e3.txt; echo "::notice title=pp-broken::exit=$? out=$(head -c 300 o3.json | tr '\n' ' ') err=$(head -c 300 e3.txt | tr '\n' ' ')"
+          php progpilot.phar t > o4.json 2> e4.txt; echo "::notice title=pp-folder::exit=$? files=$(grep -o 'source_file[^,]*' o4.json | sort | uniq -c | tr '\n' ' ' | cut -c1-500)"
+          php progpilot.phar /nonexistent/x.php > o5.json 2> e5.txt; echo "::notice title=pp-missing::exit=$? out=$(head -c 200 o5.json | tr '\n' ' ') err=$(head -c 200 e5.txt | tr '\n' ' ')"
+          mkdir -p cl && javac -d cl examples/vulnerable-demo/java/src/App.java
+          curl -fsSL -o sb.tgz https://github.com/spotbugs/spotbugs/releases/download/4.10.5/spotbugs-4.10.5.tgz && tar xzf sb.tgz
+          curl -fsSL -o fsb.jar https://repo1.maven.org/maven2/com/h3xstream/findsecbugs/findsecbugs-plugin/1.14.0/findsecbugs-plugin-1.14.0.jar
+          spotbugs-4.10.5/bin/spotbugs -textui -pluginList "$PWD/fsb.jar" -xml:withMessages -effort:max -low -output /tmp/o.xml cl > so.txt 2> se.txt
+          echo "::notice title=sb-exit::exit=$? stdout=$(head -c 200 so.txt | tr '\n' ' ') stderr=$(head -c 300 se.txt | tr '\n' ' ')"
+          spotbugs-4.10.5/bin/spotbugs -textui -pluginList "$PWD/fsb.jar" -xml:withMessages -output /tmp/o2.xml /nonexistent > so2.txt 2> se2.txt
+          echo "::notice title=sb-missing::exit=$? stdout=$(head -c 200 so2.txt | tr '\n' ' ') stderr=$(head -c 300 se2.txt | tr '\n' ' ') file=$(ls /tmp/o2.xml 2>&1)"
           python3 - <<'PY'
-          import json
-          d = json.load(open("/tmp/ca.json"))
-          print("::notice title=composer-keys::" + str(list(d)) + " abandoned=" + json.dumps(d.get("abandoned")))
-          adv = d["advisories"]["guzzlehttp/guzzle"]
-          print("::notice title=composer-count::%d advisories; keys=%s" % (len(adv), sorted(adv[0])))
-          print("::notice title=composer-sample::" + json.dumps({"advisories": {"guzzlehttp/guzzle": adv[:2]}, "abandoned": d.get("abandoned", {})}, separators=(",", ":")))
+          import re
+          t = open("/tmp/o.xml").read()
+          for b in re.findall(r"<BugInstance.*?</BugInstance>", t, re.S):
+              m = re.search(r'type="(\w+)" priority="(\d)" rank="(\d+)" abbrev="\w+" category="(\w+)"', b)
+              l = re.search(r'<SourceLine classname="[^"]*" primary="true" start="(\d+)"[^>]*sourcepath="([^"]*)"', b)
+              print("::notice title=sb-bug::" + str(m.groups() if m else None) + " line=" + str(l.groups() if l else None) + " cwe=" + str(re.search(r'cweid="(\d+)"', b)))
           PY
-          rm composer.lock
-          composer audit --format=json --locked > /tmp/ca2.json 2>/tmp/ca2.err
-          echo "::notice title=composer-nolock::exit=$? out=$(head -c 300 /tmp/ca2.json | tr '\n' ' ') err=$(head -c 400 /tmp/ca2.err | tr '\n' ' ')"
   java-php-sample:
     # Newest SpotBugs, Find Security Bugs and Psalm with their sha256, and REAL output on the demo projects
     # (to be saved as test fixtures). Also tries `composer audit` on the demo lock file.
