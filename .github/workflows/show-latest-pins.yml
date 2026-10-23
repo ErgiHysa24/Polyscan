@@ -67,3 +67,60 @@ jobs:
           print("::notice title=trivy-total::" + str(total) + " vulnerabilities in python:3.9.0")
           print("::notice title=trivy-sample::" + json.dumps(d, separators=(",", ":")))
           PY
+  java-php-sample:
+    # Newest SpotBugs, Find Security Bugs and Psalm with their sha256, and REAL output on the demo projects
+    # (to be saved as test fixtures). Also tries `composer audit` on the demo lock file.
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: SpotBugs and Find Security Bugs
+        run: |
+          set +e
+          sb=$(gh api repos/spotbugs/spotbugs/releases/latest --jq .tag_name)
+          echo "::notice title=spotbugs-version::$sb"
+          curl -fsSL -o spotbugs.tgz "https://github.com/spotbugs/spotbugs/releases/download/$sb/spotbugs-$sb.tgz"
+          echo "::notice title=spotbugs-sha256::$(sha256sum spotbugs.tgz | cut -d' ' -f1) size $(stat -c%s spotbugs.tgz)"
+          tar xzf spotbugs.tgz
+          fsb=$(curl -fsSL https://repo1.maven.org/maven2/com/h3xstream/findsecbugs/findsecbugs-plugin/maven-metadata.xml | grep -o '<release>[^<]*' | cut -d'>' -f2)
+          echo "::notice title=findsecbugs-version::$fsb"
+          curl -fsSL -o findsecbugs.jar "https://repo1.maven.org/maven2/com/h3xstream/findsecbugs/findsecbugs-plugin/$fsb/findsecbugs-plugin-$fsb.jar"
+          echo "::notice title=findsecbugs-sha256::$(sha256sum findsecbugs.jar | cut -d' ' -f1)"
+          mkdir -p classes && javac -d classes examples/vulnerable-demo/java/src/App.java
+          java -version 2>&1 | head -1
+          "spotbugs-$sb/bin/spotbugs" -textui -pluginList "$PWD/findsecbugs.jar" -xml:withMessages -effort:max -low -output sb.xml classes
+          echo "exit=$?"
+          python3 - <<'PY'
+          import re
+          t = open("sb.xml").read()
+          bugs = re.findall(r"<BugInstance.*?</BugInstance>", t, re.S)
+          print("::notice title=spotbugs-count::%d bugs, %d chars" % (len(bugs), len(t)))
+          short = [re.sub(r"\s+", " ", b)[:1100] for b in bugs[:2]]
+          print("::notice title=spotbugs-sample::" + "@@".join(short))
+          print("::notice title=spotbugs-head::" + re.sub(r"\s+", " ", t[:600]))
+          PY
+      - name: Psalm and composer audit
+        run: |
+          set +e
+          php -v | head -1; composer --version
+          ps=$(gh api repos/vimeo/psalm/releases/latest --jq .tag_name)
+          echo "::notice title=psalm-version::$ps"
+          curl -fsSL -o psalm.phar "https://github.com/vimeo/psalm/releases/download/$ps/psalm.phar"
+          echo "::notice title=psalm-sha256::$(sha256sum psalm.phar | cut -d' ' -f1) size $(stat -c%s psalm.phar)"
+          mkdir -p ptest && cp examples/vulnerable-demo/php/index.php ptest/
+          cat > psalm-test.xml <<XML
+          <?xml version="1.0"?>
+          <psalm errorLevel="8" resolveFromConfigFile="false" findUnusedCode="false">
+            <projectFiles><directory name="$PWD/ptest"/></projectFiles>
+          </psalm>
+          XML
+          php psalm.phar --config=psalm-test.xml --taint-analysis --output-format=json --no-progress --no-cache > psalm.json 2> psalm.err
+          echo "psalm exit=$?"
+          echo "::notice title=psalm-err::$(head -c 600 psalm.err | tr '\n' ' ')"
+          echo "::notice title=psalm-json::$(head -c 3000 psalm.json | tr '\n' ' ')"
+          cd examples/vulnerable-demo/php
+          composer audit --format=json --locked > ../../../ca.json 2> ../../../ca.err
+          echo "composer audit exit=$?"
+          echo "::notice title=composer-audit-err::$(head -c 600 ../../../ca.err | tr '\n' ' ')"
+          echo "::notice title=composer-audit::$(head -c 3000 ../../../ca.json | tr '\n' ' ')"
