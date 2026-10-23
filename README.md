@@ -100,6 +100,20 @@ Cose da sapere:
 - Nell'action: `risk-assessment: "true"` (più `risk-exposure` e `risk-data`) scrive `polyscan-risk-report.html/.json` e il riepilogo nella pagina del job.
 - Il testo dei rapporti letti è trattato come non fidato (HTML con escape e CSP, ANSI tolti, Markdown neutralizzato), e un file che non è un rapporto polyscan viene rifiutato.
 
+### Minacce collegate: CVE, CWE, OWASP, STRIDE, MITRE ATT&CK
+
+Ogni voce del registro dei rischi porta, quando è possibile, la catena **identificativo → debolezza → categoria → minaccia → tecnica d'attacco**:
+
+| Campo | Da dove viene | Affidabilità |
+|---|---|---|
+| CVE / GHSA / RUSTSEC | scritti dallo strumento (OSV, `npm audit`, `composer audit`, `cargo-audit`, Trivy) nella regola o nel messaggio | quello dello strumento |
+| CWE | campo dello strumento: Bandit (`issue_cwe`), ZAP (`cweid`), SpotBugs (`cweid`), Progpilot (`vuln_cwe`), Semgrep (`metadata.cwe`) | quello dello strumento; per Semgrep **non provato su output reale** (la fixture è ridotta e senza metadati), solo sul formato documentato |
+| OWASP Top 10 (2021), STRIDE, tecniche **MITRE ATT&CK** (`T1190`, `T1552.001`...) | tabella scritta a mano in `polyscan/threats.py` | **giudizio di polyscan**, non una mappa ufficiale: MITRE non pubblica un elenco CWE→ATT&CK e una debolezza può servire più tecniche |
+
+Regole della tabella: una CWE senza tecnica adatta resta senza (per esempio CSRF); una CWE che non è nella tabella viene mostrata ma senza inventare collegamenti. Se lo strumento non dà nessuna CWE (segreti, librerie con CVE, porte aperte) il collegamento viene dal *tipo* di problema e il rapporto lo segna **"(by kind)"**: un segreto trapelato → `T1552.001` *Credentials In Files* e `T1078` *Valid Accounts*; una libreria vulnerabile → `T1190` *Exploit Public-Facing Application*; una porta esposta → `T1133`, `T1046`, `T1021`. Niente viene scaricato da internet, quindi lo stesso rapporto dà sempre la stessa risposta. Non si controlla se una CVE è sfruttata attivamente (elenco CISA KEV) né il punteggio EPSS.
+
+I campi sono nel JSON del rischio (`risks[].threat`: `basis`, `cwe`, `cve`, `advisories`, `owasp_top10`, `stride`, `attack[]` con id, nome e tattica) e nelle colonne di testo, Markdown e HTML. Ogni segnalazione dei rapporti `scan`/`dast` ha ora anche il campo `cwe`; i vecchi rapporti senza il campo si leggono ancora.
+
 ## Porte in ascolto (`polyscan ports`)
 
 `polyscan ports` risponde a una domanda: **su questa macchina, quali servizi accettano connessioni di rete, e da chi?** Per una web app con database è il controllo che trova l'errore più classico: il database raggiungibile da fuori.

@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from .detect import EXTENSIONS
 from .models import Finding, Severity
 from .target import HOST_FROM_CONTAINER
+from .threats import cwe_field
 
 CONTAINER_ROOT = "/src"
 
@@ -108,6 +109,8 @@ def parse_semgrep(text: str, root: str) -> list[Finding]:
                 # `lines` is "requires login" when the rules come from the registry
                 # without an account, so it is not always real code.
                 snippet=str(extra.get("lines", "")).strip(),
+                # real Semgrep puts it in the rule's metadata: "CWE-89: Improper Neutralization..." (one or a list)
+                cwe=cwe_field((extra.get("metadata") or {}).get("cwe")),
             )
         )
     return findings
@@ -212,6 +215,7 @@ def parse_bandit(text: str, root: str) -> list[Finding]:
                 category="secret" if is_secret else "code",
                 language="python",
                 snippet="[secret redacted]" if is_secret else str(r.get("code", "")).strip(),
+                cwe=cwe_field((r.get("issue_cwe") or {}).get("id")),
             )
         )
     return findings
@@ -295,6 +299,7 @@ def parse_progpilot(text: str, root: str) -> list[Finding]:
                 line=int(line) if isinstance(line, int) or str(line).isdigit() else 0,
                 category="code",
                 language="php",
+                cwe=cwe_field(cwe),
             )
         )
     for name in data.get("unparsed") or []:
@@ -360,6 +365,7 @@ def parse_spotbugs(text: str, root: str) -> list[Finding]:
                 line=int(start) if start.isdigit() else 0,
                 category="code",
                 language="java",
+                cwe=cwe_field(cwe),
             )
         )
     return findings
@@ -399,6 +405,7 @@ def parse_zap(text: str, root: str) -> list[Finding]:
                     file=uri[:300],
                     line=0,
                     category="runtime",
+                    cwe=cwe_field(alert.get("cweid")),
                 )
             )
     return findings

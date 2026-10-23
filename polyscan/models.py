@@ -51,6 +51,7 @@ class Finding:
     category: str = "code"  # code | secret | dependency | config | runtime
     language: str = ""
     snippet: str = ""
+    cwe: str = ""  # "CWE-89" or "CWE-89,CWE-79": the weakness, when the tool says which
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +64,7 @@ class Finding:
             "category": self.category,
             "language": self.language,
             "snippet": self.snippet,
+            "cwe": self.cwe,
         }
 
 

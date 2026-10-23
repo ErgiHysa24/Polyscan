@@ -53,7 +53,33 @@ def method_lines() -> list[str]:
             "to high and critical findings, public data subtracts 1 from all"
         ),
         "this is a transparent heuristic, not a measurement: read the reasons of each risk and adjust what you disagree with",
+        (
+            "threat links: CVE and CWE ids are reported by the tools; the OWASP Top 10 (2021) category, the STRIDE threat and the "
+            "MITRE ATT&CK techniques are polyscan's own judgement from a fixed table (polyscan/threats.py), a starting point "
+            "for a threat model and not an official mapping. 'by kind' means the tool gave no CWE, so the link comes from the "
+            "kind of finding"
+        ),
     ]
+
+
+def threat_line(r: Risk) -> str:
+    """One line for text and Markdown: 'CWE-89 | A03 Injection | STRIDE: ... | ATT&CK: T1190 ...' (empty if nothing known)."""
+    t = r.threat
+    if not t or (t.basis == "none" and not (t.cve or t.advisories or t.cwe)):
+        return ""
+    parts = []
+    ids = t.cve or t.advisories
+    if ids:
+        parts.append(", ".join(ids[:3]) + (f" (+{len(ids) - 3})" if len(ids) > 3 else ""))
+    if t.cwe:
+        parts.append(", ".join(t.cwe))
+    if t.owasp:
+        parts.append(", ".join(t.owasp))
+    if t.stride:
+        parts.append("STRIDE: " + ", ".join(t.stride))
+    if t.attack:
+        parts.append("ATT&CK: " + ", ".join(f"{a['id']} {a['name']}" for a in t.attack))
+    return " | ".join(parts) + (" (by kind)" if t.basis == "kind" else "")
 
 
 # ------------------------------------------------------------------ JSON
@@ -94,6 +120,8 @@ def to_terminal(ctx: Context, risks: list[Risk], sources: list[Source], limit: i
     for r in risks[:limit]:
         out.append(f"{r.id}  {r.level.upper():8} {r.score:2} (L{r.likelihood} x I{r.impact})  {_clean(r.title)[:110]}")
         out.append(f"        where: {_clean(', '.join(r.where))[:150]}")
+        if threat_line(r):
+            out.append(f"        threat: {_clean(threat_line(r))[:300]}")
         out.append(f"        do: {_clean(r.mitigation)[:200]}  [{r.target}]")
     if len(risks) > limit:
         out.append(f"... and {len(risks) - limit} more in the full report.")
@@ -113,11 +141,11 @@ def to_markdown(ctx: Context, risks: list[Risk], sources: list[Source]) -> str:
         lines += ["> **Some checks did not run, so this register may be incomplete:**"] + [f"> - {_md(g, 300)}" for g in gaps] + [""]
     lines += [f"> {_md(n, 400)}" for n in notes_of(sources)]
     if risks:
-        lines += ["| ID | Level | Score | Risk | Where | What to do | By when |", "|---|---|---|---|---|---|---|"]
+        lines += ["| ID | Level | Score | Risk | Threat (CWE / OWASP / STRIDE / ATT&CK) | Where | What to do | By when |", "|---|---|---|---|---|---|---|---|"]
         for r in risks:
             lines.append(
                 f"| {r.id} | {r.level} | {r.score} (L{r.likelihood}xI{r.impact}) | {_md(r.title, 120)} | "
-                f"{_md(', '.join(r.where), 100)} | {_md(r.mitigation, 220)} | {_md(r.target)} |"
+                f"{_md(threat_line(r), 300)} | {_md(', '.join(r.where), 100)} | {_md(r.mitigation, 220)} | {_md(r.target)} |"
             )
     else:
         lines.append("No risks in the reports.")
@@ -149,6 +177,24 @@ def _matrix_html(risks: list[Risk]) -> str:
     return '<div class="wrap"><table class="matrix">' + "".join(rows) + "</table></div><p class='muted'>Each cell shows how many risks have that likelihood and impact; the register below lists them.</p>"
 
 
+def _threat_html(r: Risk) -> str:
+    t = r.threat
+    if not threat_line(r):
+        return ""
+    bits = []
+    ids = t.cve or t.advisories
+    if ids:
+        bits.append("<b>" + _e(", ".join(ids[:5])) + "</b>")
+    if t.cwe:
+        bits.append(_e(", ".join(t.cwe)))
+    bits += [_e(o) for o in t.owasp]
+    if t.stride:
+        bits.append("STRIDE: " + _e(", ".join(t.stride)))
+    attack = ", ".join(f"<abbr title='{_e(a['tactic'])}'>{_e(a['id'])}</abbr> {_e(a['name'])}" for a in t.attack)
+    html = "<br><span class='muted'>Threat: " + " &middot; ".join(bits) + (f"<br>ATT&amp;CK: {attack}" if attack else "") + (" <i>(by kind: the tool gave no CWE)</i>" if t.basis == "kind" else "") + "</span>"
+    return html
+
+
 def to_html(ctx: Context, risks: list[Risk], sources: list[Source]) -> str:
     c = counts(risks)
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -165,7 +211,7 @@ def to_html(ctx: Context, risks: list[Risk], sources: list[Source]) -> str:
             f'<tr><td><b>{_e(r.id)}</b></td><td class="sev lvl-{r.level}">{_e(r.level)}<br>{r.score}<br>'
             f'<span class="muted">L{r.likelihood} x I{r.impact}</span></td>'
             f"<td><b>{_e(r.title)}</b><br><span class='muted'>{_e(r.kind)} &middot; {_e(', '.join(r.tools))} &middot; {_e(r.rule)} &middot; {r.count} occurrence(s)</span>"
-            f"<br><code>{_e(', '.join(r.where))}</code><details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
+            f"<br><code>{_e(', '.join(r.where))}</code>{_threat_html(r)}<details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
             f"<td>{_e(r.mitigation)}<br><span class='muted'>Suggested: {_e(r.target)}</span></td></tr>"
         )
     table = (

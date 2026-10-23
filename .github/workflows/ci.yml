@@ -130,6 +130,10 @@ jobs:
           print({"risk-summary": risk["summary"], "gaps": risk["coverage_gaps"]})
           if risk["kind"] != "risk-assessment" or not risk["risks"] or not risk["risks"][0]["reasons"]:
               problems.append("the risk register is empty or has no reasons")
+          threats = [r["threat"] for r in risk["risks"] if r.get("threat")]
+          print("::notice title=threat-links::" + str({"with-attack": sum(bool(t["attack"]) for t in threats), "with-cwe": sum(bool(t["cwe"]) for t in threats), "with-cve": sum(bool(t["cve"]) for t in threats)}))
+          if not any(t["attack"] for t in threats) or not any(t["cve"] for t in threats) or not any(t["basis"] == "cwe" for t in threats):
+              problems.append("the risk register has no CVE, no CWE-based link or no ATT&CK technique")
           if sum(risk["summary"].values()) != len(risk["risks"]):
               problems.append("risk summary does not match the register")
           for name in ("polyscan-risk-report.html", "polyscan-risk-summary.md"):

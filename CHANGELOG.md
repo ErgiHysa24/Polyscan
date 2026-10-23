@@ -6,6 +6,7 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Minacce collegate nel registro dei rischi**: per ogni rischio CVE/GHSA, CWE, categoria OWASP Top 10 (2021), minacce STRIDE e **tecniche MITRE ATT&CK** (`polyscan/threats.py`). La CWE viene dagli strumenti (Bandit, ZAP, SpotBugs, Progpilot, Semgrep); i collegamenti a OWASP, STRIDE e ATT&CK sono una tabella scritta a mano e dichiarata come giudizio di polyscan. Dove non c'è una CWE il collegamento viene dal tipo di problema ed è marcato "(by kind)". Nuovo campo `cwe` in ogni segnalazione dei rapporti JSON.
 - **Java**: [SpotBugs](https://spotbugs.github.io) con il plugin Find Security Bugs, sulle classi compilate; solo la categoria sicurezza. Senza classi compilate il controllo è saltato con il motivo, e se il plugin non si carica fallisce.
 - **PHP**: analisi dei flussi di dati non fidati con [Progpilot](https://github.com/designsecurity/progpilot), e `composer audit --locked` per le librerie. Ogni file PHP è controllato con `php -l` prima, perché Progpilot non dice nulla sui file che non riesce a leggere; i file non analizzati sono segnalati.
 - Nell'action: installazione di Progpilot, SpotBugs e Find Security Bugs con versione fissa e sha256 controllato.

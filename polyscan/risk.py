@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import ERROR, UNAVAILABLE, Finding, Severity
+from .threats import Threat, threat_for
 
 MAX_REPORT_BYTES = 50 * 1024 * 1024
 
@@ -149,6 +150,7 @@ class Risk:
     impact: int
     reasons: list[str]
     mitigation: str
+    threat: Threat | None = None  # CVE/CWE -> OWASP -> STRIDE -> ATT&CK (see threats.py)
 
     @property
     def score(self) -> int:
@@ -168,6 +170,7 @@ class Risk:
             "tool_severity": self.severity.label, "where": self.where, "occurrences": self.count,
             "likelihood": self.likelihood, "impact": self.impact, "score": self.score, "level": self.level,
             "reasons": self.reasons, "mitigation": self.mitigation, "suggested_target": self.target,
+            "threat": self.threat.to_dict() if self.threat else None,
         }  # fmt: skip
 
 
@@ -213,7 +216,7 @@ def assess(findings: list[Finding], ctx: Context | None = None) -> list[Risk]:
                 tools=sorted({f.tool for f in items}), rule=rule, severity=severity,
                 where=places[:5] + ([f"... and {len(places) - 5} more"] if len(places) > 5 else []),
                 count=len(items), likelihood=likelihood, impact=impact, reasons=reasons,
-                mitigation=mitigation_for(kind, rule, lead.message),
+                mitigation=mitigation_for(kind, rule, lead.message), threat=threat_for(items, kind),
             )
         )  # fmt: skip
     risks.sort(key=lambda r: (-r.score, -r.severity, -r.count, r.rule))
@@ -273,6 +276,7 @@ def load_report(path: str) -> Source:
                     tool=str(item["tool"]), severity=Severity.parse(str(item["severity"])), rule=str(item.get("rule", "")),
                     message=str(item.get("message", "")), file=str(item.get("file", "")), line=int(item.get("line") or 0),
                     category=str(item.get("category", "code")), language=str(item.get("language", "")),
+                    cwe=str(item.get("cwe", ""))[:200],
                 )
             )  # fmt: skip
         except (KeyError, TypeError, ValueError, AttributeError):
