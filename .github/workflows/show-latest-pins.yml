@@ -97,10 +97,9 @@ jobs:
           python3 - <<'PY'
           import re
           t = open("/tmp/o.xml").read()
-          for b in re.findall(r"<BugInstance.*?</BugInstance>", t, re.S):
-              m = re.search(r'type="(\w+)" priority="(\d)" rank="(\d+)" abbrev="\w+" category="(\w+)"', b)
-              l = re.search(r'<SourceLine classname="[^"]*" primary="true" start="(\d+)"[^>]*sourcepath="([^"]*)"', b)
-              print("::notice title=sb-bug::" + str(m.groups() if m else None) + " line=" + str(l.groups() if l else None) + " cwe=" + str(re.search(r'cweid="(\d+)"', b)))
+          sec = [re.sub(r"\s+", " ", b) for b in re.findall(r"<BugInstance.*?</BugInstance>", t, re.S) if 'category="SECURITY"' in b]
+          print("::notice title=sb-security-full::" + "@@".join(sec))
+          print("::notice title=sb-tail::" + re.sub(r"\s+", " ", t[-700:]))
           PY
   java-php-sample:
     # Newest SpotBugs, Find Security Bugs and Psalm with their sha256, and REAL output on the demo projects
