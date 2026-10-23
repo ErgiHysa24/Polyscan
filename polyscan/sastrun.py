@@ -110,8 +110,8 @@ def run_spotbugs(root: Path, excludes: tuple[str, ...] = (), run=subprocess.run,
     if f'id="{FSB_PLUGIN_ID}"' not in xml:
         # Without the plugin SpotBugs only finds general bugs and would look "clean" for security.
         return EXIT_FAILED, "", (
-            "the Find Security Bugs plugin was not loaded (copy its jar into SpotBugs' plugin/ folder "
-            f"or set {PLUGIN_ENV})"
+            "the Find Security Bugs plugin was not loaded (set "
+            f"{PLUGIN_ENV} to the plugin's jar file)"
         )  # fmt: skip
     return 0, xml, ""
 

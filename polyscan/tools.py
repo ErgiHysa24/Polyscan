@@ -12,7 +12,8 @@ import math
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
+# SpotBugs XML only. Entity/DOCTYPE declarations (the XXE and XML-bomb vector) are refused before parsing.
+import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit

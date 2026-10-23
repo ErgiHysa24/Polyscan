@@ -158,7 +158,7 @@ runs:
             && fetch https://repo1.maven.org/maven2/com/h3xstream/findsecbugs/findsecbugs-plugin/1.14.0/findsecbugs-plugin-1.14.0.jar \
               6fa340344fa433ff46c2985dab1010e8bc739f9395c983594a5240095e92abc8 "$tools/findsecbugs.jar"; then
             tar xzf "$tools/spotbugs.tgz" -C "$tools"
-            cp "$tools/findsecbugs.jar" "$tools/spotbugs-4.10.5/plugin/"
+            echo "POLYSCAN_FINDSECBUGS_JAR=$tools/findsecbugs.jar" >> "$GITHUB_ENV"  # given to SpotBugs with -pluginList
             printf '#!/bin/sh\nexec "%s" "$@"\n' "$tools/spotbugs-4.10.5/bin/spotbugs" > "$tools/bin/spotbugs"
             chmod +x "$tools/bin/spotbugs"
           else

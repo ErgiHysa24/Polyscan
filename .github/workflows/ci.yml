@@ -102,6 +102,7 @@ jobs:
           javac -d examples/vulnerable-demo/java/target/classes examples/vulnerable-demo/java/src/App.java
       - id: scan
         uses: ./
+        continue-on-error: true  # exit code 3 (a check failed) must reach the next step, which says which one
         with:
           path: examples/vulnerable-demo
           fail-on: none
