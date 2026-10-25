@@ -178,3 +178,23 @@ def test_findings_keep_their_cwe_through_the_scanner_pipeline():
     f = fnd(cwe="CWE-89")
     assert dedupe([f])[0].cwe == "CWE-89" and add_snippets([f], Path("."))[0].cwe == "CWE-89"
     assert f.to_dict()["cwe"] == "CWE-89"
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("POLYSCAN_ATTACK_JSON"), reason="set POLYSCAN_ATTACK_JSON to enterprise-attack.json")
+def test_names_match_the_official_attack_data():
+    """Run by hand: curl -O https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json"""
+    import os
+
+    data = json.load(open(os.environ["POLYSCAN_ATTACK_JSON"], encoding="utf-8"))
+    objs = [o for o in data["objects"] if o.get("type") == "attack-pattern"]
+    names = {o["id"]: o["name"] for o in objs}
+    parent = {r["source_ref"]: r["target_ref"] for r in data["objects"] if r.get("relationship_type") == "subtechnique-of"}
+    official = {}
+    for o in objs:
+        for ref in o.get("external_references", []):
+            if ref.get("source_name") == "mitre-attack":
+                full = f"{names[parent[o['id']]]}: {o['name']}" if o["id"] in parent else o["name"]
+                official[ref["external_id"]] = (full, o.get("revoked") or o.get("x_mitre_deprecated"))
+    for tid, (name, _tactic) in TECHNIQUES.items():
+        assert tid in official, tid
+        assert official[tid] == (name, None) or official[tid][0] == name and not official[tid][1], (tid, official[tid])

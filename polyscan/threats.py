@@ -41,13 +41,14 @@ OWASP = {
     "A10": "A10:2021 Server-Side Request Forgery",
 }
 
-# ATT&CK Enterprise techniques used below: id -> (name, tactic)
+# ATT&CK Enterprise techniques used below: id -> (name, tactic). Names checked against ATT&CK v20.0 (STIX data from
+# github.com/mitre-attack/attack-stix-data) with the test test_names_match_the_official_attack_data.
 TECHNIQUES = {
     "T1592": ("Gather Victim Host Information", "Reconnaissance"),
     "T1190": ("Exploit Public-Facing Application", "Initial Access"),
     "T1189": ("Drive-by Compromise", "Initial Access"),
     "T1133": ("External Remote Services", "Initial Access / Persistence"),
-    "T1078": ("Valid Accounts", "Initial Access / Persistence / Privilege Escalation"),
+    "T1078": ("Valid Accounts", "Stealth / Persistence / Privilege Escalation / Initial Access"),
     "T1059": ("Command and Scripting Interpreter", "Execution"),
     "T1505.003": ("Server Software Component: Web Shell", "Persistence"),
     "T1068": ("Exploitation for Privilege Escalation", "Privilege Escalation"),
