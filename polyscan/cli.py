@@ -15,7 +15,7 @@ from .models import Severity
 from .ports import DEFAULT_EXPECTED
 from .ports import check as check_ports
 from .report import to_html, to_json, to_markdown, to_terminal
-from .risk import DATA, EXPOSURES, LEVELS, Context, assess, load_report, merge
+from .risk import DATA, EXPOSURES, LEVELS, Context, Source, assess, load_report, merge
 from .intel import gather as gather_intel
 from .threats import cve_ids
 from .treatment import load as load_decisions
@@ -132,6 +132,23 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--decisions-template", metavar="FILE",
                    help="write a decisions file with one 'todo' entry per risk, to fill in")  # fmt: skip
 
+    rp = sub.add_parser("report", help="one printable assessment report (scope, executive summary, coverage, risks, treatment, ATT&CK, retest)")
+    rp.add_argument("reports", nargs="+", help="JSON reports from scan, dast or ports")
+    rp.add_argument("--html", metavar="FILE", required=True, help="where to write the report")
+    rp.add_argument("--title", default="Security assessment")
+    rp.add_argument("--target", default="", help="what was assessed (application name, URL, version)")
+    rp.add_argument("--tester", default="", help="who did the assessment")
+    rp.add_argument("--authorized-by", default="", help="who authorized the test (name, role, document)")
+    rp.add_argument("--period", default="", help="when the test was done, e.g. 2026-11-10 / 2026-11-14")
+    rp.add_argument("--scope", action="append", default=[], help="an item in scope (repeat the option)")
+    rp.add_argument("--out-of-scope", action="append", default=[], help="an item explicitly out of scope (repeat)")
+    rp.add_argument("--exposure", choices=sorted(EXPOSURES), default="internet")
+    rp.add_argument("--data", choices=sorted(DATA), default="personal")
+    rp.add_argument("--decisions", metavar="FILE", help="risk treatment decisions (see `polyscan risk`)")
+    rp.add_argument("--intel", action="store_true", help="download CISA KEV and FIRST EPSS")
+    rp.add_argument("--kev-file", metavar="FILE")
+    rp.add_argument("--epss-file", metavar="FILE")
+    rp.add_argument("--retest", metavar="BEFORE.json", help="an earlier report: adds the retest section (fixed / still open / new)")
     df = sub.add_parser("diff", help="retest: compare two JSON reports (before / after the fixes): fixed, still open, new")
     df.add_argument("before", help="JSON report of the first scan")
     df.add_argument("after", help="JSON report of the scan after the fixes")
@@ -293,6 +310,35 @@ def cmd_risk(args) -> int:
     return EXIT_OK
 
 
+def cmd_report(args) -> int:
+    from . import assessment, diff
+
+    try:
+        ctx = Context(args.exposure, args.data)
+        sources = [load_report(path) for path in args.reports]
+        plan = load_decisions(args.decisions) if args.decisions else None
+        before = load_report(args.retest) if args.retest else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    findings = merge(sources)
+    intel = None
+    if args.intel or args.kev_file or args.epss_file:
+        intel = gather_intel(sorted({c for f in findings for c in cve_ids(f)}), args.intel, args.kev_file, args.epss_file)
+    risks = assess(findings, ctx, plan, intel)
+    retest = None
+    if before:
+        # the retest compares against everything read now, as one report
+        after = Source("+".join(s.path for s in sources), sources[0].root, sources[0].kind, findings,
+                       [t for s in sources for t in s.tools])  # fmt: skip
+        retest = diff.compare(before, after)
+    meta = assessment.Meta(args.title, args.target, args.tester, args.authorized_by, args.period, args.scope, args.out_of_scope)
+    Path(args.html).write_text(assessment.to_html(meta, ctx, risks, sources, plan, intel, retest), encoding="utf-8")
+    print(f"assessment report: {args.html} ({len(risks)} risks, {sum(r.active for r in risks)} open)")
+    statuses = {t.get("status") for s in sources for t in s.tools}
+    return EXIT_GAPS if "error" in statuses or (intel and intel.problems) else EXIT_OK
+
+
 def cmd_diff(args) -> int:
     from . import diff
 
@@ -326,6 +372,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_risk(args)
     if args.command == "diff":
         return cmd_diff(args)
+    if args.command == "report":
+        return cmd_report(args)
     if args.command == "ports":
         return cmd_ports(args)
     return cmd_dast(args) if args.command == "dast" else cmd_scan(args)

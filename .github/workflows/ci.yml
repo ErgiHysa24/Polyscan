@@ -157,6 +157,28 @@ jobs:
               print("::error title=problems::" + " | ".join(problems)[:3500])
               sys.exit(1)
           EOF
+      - name: Assessment report and retest on the real demo reports
+        env:
+          REPORT_DIR: ${{ steps.scan.outputs.report-dir }}
+        run: |
+          python -m pip install -q .
+          set +e
+          polyscan report "$REPORT_DIR/polyscan-report.json" --html assessment.html --title "Demo assessment" \
+            --target "examples/vulnerable-demo" --tester CI --authorized-by "repository owner" \
+            --decisions examples/vulnerable-demo/polyscan-risk.json --retest "$REPORT_DIR/polyscan-report.json"
+          echo "report exit=$?"
+          polyscan diff "$REPORT_DIR/polyscan-report.json" "$REPORT_DIR/polyscan-report.json" --json diff.json > /dev/null
+          echo "diff exit=$?"
+          set -e
+          python - <<'EOF4'
+          import json, sys
+          html = open("assessment.html", encoding="utf-8").read()
+          missing = [s for s in ("1. Scope", "2. Executive summary", "3. Method", "4. Risk matrix", "5. Risk treatment", "6. Threats", "7. Retest", "8. Appendix") if s not in html]
+          d = json.load(open("diff.json"))
+          print("::notice title=assessment::" + f"{len(html)} chars, missing sections: {missing}; self-diff: {d['summary']}")
+          if missing or d["summary"]["new"] or d["summary"]["fixed"] or not d["summary"]["still_open"]:
+              sys.exit(1)
+          EOF4
 
   # Live-site scan with the real ZAP in Docker, on a demo site started here.
   dast-demo:

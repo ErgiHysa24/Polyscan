@@ -114,6 +114,76 @@ Regole della tabella: una CWE senza tecnica adatta resta senza (per esempio CSRF
 
 I campi sono nel JSON del rischio (`risks[].threat`: `basis`, `cwe`, `cve`, `advisories`, `owasp_top10`, `stride`, `attack[]` con id, nome e tattica) e nelle colonne di testo, Markdown e HTML. Ogni segnalazione dei rapporti `scan`/`dast` ha ora anche il campo `cwe`; i vecchi rapporti senza il campo si leggono ancora.
 
+### Trattamento del rischio: chi decide cosa, entro quando
+
+Un registro dei rischi non finisce col punteggio: per ogni rischio qualcuno sceglie una **risposta** (ISO/IEC 27005, NIST SP 800-30/800-39) e la scelta va scritta, con un responsabile e una data. polyscan legge queste decisioni da un file JSON tenuto nel repository (quindi con la storia di chi ha deciso cosa):
+
+```json
+{
+  "version": 1,
+  "decisions": [
+    {"rule": "CVE-2026-69246", "file": "php/composer.lock", "decision": "accept",
+     "owner": "Mario Rossi", "justification": "usata solo nei test", "expires": "2026-12-31"},
+    {"rule": "B608", "file": "app/reports/*.py", "decision": "false-positive",
+     "owner": "Mario Rossi", "justification": "la query è una costante, il valore è un segnaposto"},
+    {"rule": "polyscan-sql-*", "decision": "mitigate", "owner": "team backend",
+     "due": "2026-12-15", "status": "in-progress", "ticket": "#42"}
+  ]
+}
+```
+
+```bash
+polyscan risk scan.json --decisions polyscan-risk.json --html rischi.html
+polyscan risk scan.json --decisions-template da-decidere.json   # una voce "todo" per ogni rischio senza decisione
+```
+
+| Decisione | Campi obbligatori | Effetto nel registro |
+|---|---|---|
+| `mitigate` (correggere) | `owner`, `due` | resta attivo; dopo la data è **in ritardo** (avviso) |
+| `accept` (accettare) | `owner`, `justification`, `expires` | resta visibile come *accettato* e non fa più fallire `--fail-on`; **scaduta** l'accettazione conta di nuovo |
+| `transfer` (trasferire) / `avoid` (evitare) | `owner`, `justification` | resta attivo finché il retest non lo trova più |
+| `false-positive` | `owner`, `justification` | esce dal registro ma è **elencato** a parte con chi l'ha deciso e perché |
+| `todo` | nessuno | segnaposto, contato negli avvisi |
+
+`rule`, `file` e `tool` sono modelli con `*` e `?`; serve almeno `rule` o `file`; vince la prima decisione che corrisponde. Se un rischio ha decisioni diverse in punti diversi viene diviso. Una decisione che non corrisponde a nulla viene segnalata (problema risolto, o modello sbagliato). Una mitigazione segnata `"status": "done"` ma ancora trovata dalla scansione **non** conta come risolta: solo il retest la chiude. Il file è validato campo per campo (campi sconosciuti, date non `AAAA-MM-GG`, testo troppo lungo: errore con il numero della voce). Nell'action: `risk-decisions: percorso/del/file.json`; il registro produce sempre anche `polyscan-risk-decisions-todo.json`. Esempio completo: `examples/vulnerable-demo/polyscan-risk.json`.
+
+### Threat intelligence: CISA KEV ed EPSS
+
+La gravità di uno strumento (CVSS) dice quanto è grave una vulnerabilità *se* qualcuno la sfrutta, non se qualcuno lo sta facendo. Con `--intel` polyscan scarica due fonti pubbliche e gratuite:
+
+- **CISA KEV** (*Known Exploited Vulnerabilities*): le CVE con prove di sfruttamento reale. Una CVE nel catalogo porta la **probabilità a 5**;
+- **FIRST EPSS**: la probabilità (0–1) che una CVE venga sfruttata nei prossimi 30 giorni. Dal **10%** in su la probabilità sale di 1 (soglia diffusa; FIRST suggerisce di sceglierla secondo la propria tolleranza al rischio).
+
+Niente abbassa una probabilità: un EPSS basso non prova che si è al sicuro. Il registro scrive la fonte e la data dei dati, e una fonte non raggiungibile diventa una lacuna (codice di uscita 3), non un silenzio. Senza internet, o per un rapporto riproducibile, si passano i file: `--kev-file known_exploited_vulnerabilities.json --epss-file epss_scores.csv`. Nell'action: `risk-intel: "true"`. Verificato nella CI sul demo: catalogo KEV con 1.779 voci, 826 CVE su 838 con punteggio EPSS, 10 rischi segnati come sfruttati attivamente.
+
+### Retest: cosa è stato risolto davvero
+
+Dopo le correzioni si rifà la scansione e si confrontano i due rapporti:
+
+```bash
+polyscan diff prima.json dopo.json --html retest.html --markdown retest.md --fail-on high
+```
+
+Ogni segnalazione finisce in un gruppo: **risolta**, **ancora aperta**, **nuova**, oppure **non verificata**. Una segnalazione sparita conta come risolta solo se lo strumento che l'aveva trovata ha girato bene la seconda volta; altrimenti è *non verificata* e il comando esce con 3. È l'errore classico dei retest: "zero problemi" perché lo strumento non è partito. Il confronto usa strumento, regola e file, non la riga (una correzione sposta le righe di tutto quello che viene dopo). `--fail-on` guarda solo le segnalazioni **nuove**.
+
+### SARIF
+
+`polyscan scan --sarif rapporto.sarif` (anche `dast`) scrive il formato standard OASIS SARIF 2.1.0, letto da GitHub Code Scanning, DefectDojo, SonarQube e dagli IDE. Contiene una *run* per strumento; uno strumento che non ha girato ha `executionSuccessful: false` con il motivo, quindi anche lì un controllo fallito non sembra pulito. Le CWE diventano tag `external/cwe/cwe-N` e la gravità `security-severity` (il numero che GitHub usa per critical/high/medium/low). L'output è validato nei test contro lo schema ufficiale. L'action lo scrive sempre come `polyscan-report.sarif`.
+
+## Rapporto di assessment (`polyscan report`)
+
+Un solo documento HTML, stampabile in PDF, che mette insieme l'intero lavoro nell'ordine in cui si legge un rapporto di vulnerability assessment (NIST SP 800-115, PTES, OWASP WSTG): **ambito e autorizzazione** (con avviso se l'autorizzazione non è indicata), **sintesi per la direzione**, **metodo e copertura** (ogni controllo con stato; quelli non riusciti in rosso), **matrice e registro dei rischi**, **trattamento**, **minacce ATT&CK per tattica e categorie OWASP**, **retest** e **appendice sul metodo**.
+
+```bash
+polyscan report scan.json dast.json ports.json --html assessment.html \
+  --title "Assessment ShopDemo" --target "ShopDemo 1.0 (Flask + PostgreSQL, Docker)" \
+  --tester "Nome Cognome" --authorized-by "Proprietario dell'applicazione" --period 2026-11-12 \
+  --scope "codice sorgente" --scope "applicazione su localhost" \
+  --decisions polyscan-risk.json --intel --retest scan-precedente.json
+```
+
+Il metodo seguito e il confronto con strumenti simili (DefectDojo, SecObserve, Threat Dragon, Greenbone...) sono in [`docs/METODOLOGIA.md`](docs/METODOLOGIA.md) e [`docs/CONFRONTO.md`](docs/CONFRONTO.md).
+
 ## Porte in ascolto (`polyscan ports`)
 
 `polyscan ports` risponde a una domanda: **su questa macchina, quali servizi accettano connessioni di rete, e da chi?** Per una web app con database è il controllo che trova l'errore più classico: il database raggiungibile da fuori.

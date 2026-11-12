@@ -6,6 +6,16 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Rapporto di assessment** (`polyscan report`): un documento stampabile con ambito e autorizzazione, sintesi, copertura dei controlli, matrice e registro, trattamento, ATT&CK per tattica, retest e appendice.
+- Documentazione: `docs/METODOLOGIA.md` (fasi e standard) e `docs/CONFRONTO.md` (strumenti simili e roadmap).
+- **Trattamento del rischio** (`--decisions`): decisioni accept / mitigate / transfer / avoid / false-positive con responsabile, motivazione, scadenze, stato e ticket, in un file JSON versionato. Accettazioni scadute, mitigazioni in ritardo, decisioni che non corrispondono a nulla e correzioni "fatte" ma ancora trovate diventano avvisi. `--decisions-template` crea il file da compilare.
+- **Threat intelligence** (`--intel`, `--kev-file`, `--epss-file`): CISA KEV porta a 5 la probabilità delle CVE sfruttate attivamente, EPSS ≥ 10% la alza di 1. Fonti non raggiungibili = lacuna, codice 3.
+- **Retest** (`polyscan diff`): risolte / ancora aperte / nuove / non verificate; una segnalazione sparita perché lo strumento non ha girato non conta come risolta.
+- **SARIF 2.1.0** (`--sarif`), validato contro lo schema ufficiale OASIS; gli strumenti falliti hanno `executionSuccessful: false`.
+- Action: input `risk-decisions` e `risk-intel`; scrive sempre `polyscan-report.sarif` e `polyscan-risk-decisions-todo.json`.
+
+### Cambiato
+- CI: Python 3.9 (versione minima) è provato su `ubuntu-24.04`, perché `ubuntu-latest` è passato a Ubuntu 26.04, che non lo ha più.
 - **Minacce collegate nel registro dei rischi**: per ogni rischio CVE/GHSA, CWE, categoria OWASP Top 10 (2021), minacce STRIDE e **tecniche MITRE ATT&CK** (`polyscan/threats.py`). La CWE viene dagli strumenti (Bandit, ZAP, SpotBugs, Progpilot, Semgrep); i collegamenti a OWASP, STRIDE e ATT&CK sono una tabella scritta a mano e dichiarata come giudizio di polyscan. Dove non c'è una CWE il collegamento viene dal tipo di problema ed è marcato "(by kind)". Nuovo campo `cwe` in ogni segnalazione dei rapporti JSON.
 - **Java**: [SpotBugs](https://spotbugs.github.io) con il plugin Find Security Bugs, sulle classi compilate; solo la categoria sicurezza. Senza classi compilate il controllo è saltato con il motivo, e se il plugin non si carica fallisce.
 - **PHP**: analisi dei flussi di dati non fidati con [Progpilot](https://github.com/designsecurity/progpilot), e `composer audit --locked` per le librerie. Ogni file PHP è controllato con `php -l` prima, perché Progpilot non dice nulla sui file che non riesce a leggere; i file non analizzati sono segnalati.
