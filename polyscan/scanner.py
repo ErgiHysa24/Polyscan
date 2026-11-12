@@ -267,6 +267,12 @@ def scan(
     return result
 
 
+def verify_login(*args) -> str:
+    from .logincheck import verify
+
+    return verify(*args)
+
+
 def _origin(url: str) -> str:
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}"
@@ -286,7 +292,10 @@ def dast(
     # Inside a container "localhost" is the container itself, so the tool is given the
     # address of the host machine instead; the report still shows the original URL.
     opts = replace(opts or ScanOptions(), target_url=target.for_container())
+    login_problem = ""
     if opts.login_url:
+        login_problem = verify_login(opts.login_url, opts.login_check_url, opts.login_user, opts.login_password,
+                                     opts.login_user_field, opts.login_password_field)  # fmt: skip
         # the login and check pages are on the same site: seen from the container they move with it
         old, new = _origin(target.url), _origin(opts.target_url)
         opts = replace(opts, login_url=new + opts.login_url[len(old):], login_check_url=new + opts.login_check_url[len(old):])
@@ -304,7 +313,7 @@ def dast(
             "--allow-remote was given, which means you stated that you own it or have written "
             "authorization to test it."
         )
-    if result_note:
+    if result_note and not login_problem:
         result.notes.append(result_note)
     if opts.auth_value:
         result.notes.append(
@@ -316,6 +325,10 @@ def dast(
         how, reason = choose_how(tool, mode)
         if how is None:
             result.tools.append(ToolResult(tool.name, UNAVAILABLE, reason))
+            continue
+        if tool.name == "zap" and login_problem:
+            # never fall back to an anonymous scan: it would look like a clean result for the pages behind the login
+            result.tools.append(ToolResult(tool.name, ERROR, f"form login: {login_problem}"))
             continue
         if tool.name == "testssl" and not target.url.lower().startswith("https://"):
             result.tools.append(ToolResult(tool.name, SKIPPED, "the target is http: there is no TLS to check (use https in production)"))

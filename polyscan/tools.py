@@ -1152,11 +1152,11 @@ def zap_login_plan(opts: ScanOptions) -> str:
     and lets json.dumps do all the quoting: a password can contain any character without breaking out).
 
     What the plan does, in order:
-      1. logs in by posting the form (ZAP repeats it by itself when the session expires);
-      2. opens the check page AS THE USER and requires 200: if the login did not work the plan fails,
-         so an anonymous scan is never passed off as an authenticated one;
-      3. follows links as the user (spider), never the logout link;
-      4. waits for the passive rules to finish and writes the report.
+      1. logs in by posting the form, and polls the check page to notice when the session is lost;
+      2. follows links as the user (spider), never the logout link;
+      3. waits for the passive rules to finish and writes the report.
+    That the login really works is proved BEFORE this plan runs, by polyscan.logincheck (a check inside
+    the plan was tried and proved nothing: ZAP follows the redirect to the login page, which answers 200).
     There is no activeScan job: like the rest of polyscan, this sends no attacks."""
     parts = urlsplit(opts.target_url)
     origin = f"{parts.scheme}://{parts.netloc}"
@@ -1177,8 +1177,6 @@ def zap_login_plan(opts: ScanOptions) -> str:
             "parameters": {"failOnError": True, "failOnWarning": False, "progressToStdout": True},
         },
         "jobs": [
-            {"type": "requestor", "name": "login-check", "parameters": {"user": "polyscan-user"},
-             "requests": [{"url": opts.login_check_url, "name": "protected page", "method": "GET", "responseCode": 200}]},
             {"type": "spider", "parameters": {"context": "polyscan", "user": "polyscan-user", "url": opts.target_url,
                                               "maxDuration": opts.zap_minutes}},
             {"type": "passiveScan-wait", "parameters": {"maxDuration": 5}},

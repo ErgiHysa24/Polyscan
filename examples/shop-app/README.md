@@ -21,7 +21,7 @@ docker compose down -v
 | Where | Weakness | Found by |
 |---|---|---|
 | `app.py` `/search` | SQL built by joining text with user input | Semgrep, Bandit |
-| `app.py` | Flask `secret_key` written in the code, debug mode on | Gitleaks/Semgrep, Bandit |
+| `app.py` | Flask `secret_key` written in the code, debug mode on | Bandit (B105, B201), Semgrep |
 | `app.py` `/account` | technology banner only on the page behind the login | ZAP, only with the form login |
 | `init.sql` | passwords stored as unsalted MD5 | Semgrep SQL rules / review |
 | `docker-compose.yml` | default database password, database port published, app connects as superuser, `sslmode=disable` | db-config, Compose rules, Checkov, `polyscan ports` |

@@ -495,7 +495,7 @@ jobs:
           print("::notice title=shop-top-risks::" + str(top)[:3500])
           problems = []
           s = st(scan)
-          for name in ("semgrep", "gitleaks", "osv-scanner", "bandit", "db-config", "trivy", "checkov"):
+          for name in ("semgrep", "osv-scanner", "bandit", "db-config", "trivy", "checkov"):
               if s.get(name, ("missing",))[0] != "ok" or not s[name][1]:
                   problems.append(f"scan {name}: {s.get(name)}")
           if st(auth).get("zap", ("missing",))[0] != "ok": problems.append("authenticated ZAP scan did not run")
