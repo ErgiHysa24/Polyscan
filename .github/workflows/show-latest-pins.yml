@@ -201,3 +201,29 @@ jobs:
           PY
           docker run --rm ghcr.io/testssl/testssl.sh:3.2 --quiet --color 0 --protocols --jsonfile /dev/stdout https://127.0.0.1:9 > dead.txt 2>&1
           echo "::notice title=testssl-dead::exit=$? $(tail -c 500 dead.txt | tr '\n' ' ')"
+  zap-plan-sample:
+    # The Automation Framework plan template of the pinned ZAP: the exact option names for form login.
+    runs-on: ubuntu-latest
+    steps:
+      - name: autogenmax
+        run: |
+          set +e
+          mkdir w && chmod 777 w
+          docker run --rm -v "$PWD/w:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 zap.sh -cmd -autogenmax /zap/wrk/plan.yaml > log.txt 2>&1
+          echo "exit=$? $(wc -l < w/plan.yaml) lines"
+          python3 - <<'PY'
+          import re
+          t = open("w/plan.yaml").read()
+          def show(title, text):
+              text = "\n".join(l for l in text.splitlines() if l.strip())
+              for i in range(0, min(len(text), 11000), 3600):
+                  print(f"::notice title={title}-{i // 3600}::" + text[i:i + 3600].replace("%", "%25").replace("\n", "%0A"))
+          env, jobs = t.split("\njobs:", 1)
+          show("zap-env", env)
+          blocks = re.split(r"\n(?=- (?:name|type):)", jobs)
+          print("::notice title=zap-job-types::" + ", ".join(re.findall(r"type: \"?([\w-]+)", jobs)))
+          for b in blocks:
+              m = re.search(r"type: \"?([\w-]+)", b)
+              if m and m.group(1) in ("requestor", "spider", "report", "passiveScan-wait", "passiveScan-config", "exitStatus"):
+                  show("zap-job-" + m.group(1), b)
+          PY
