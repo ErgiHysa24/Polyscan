@@ -17,7 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, python: "3.9" }
+          # 3.9 is the oldest supported version; Ubuntu 26.04 (ubuntu-latest since 2026-10) no longer ships it
+          - { os: ubuntu-24.04, python: "3.9" }
           - { os: ubuntu-latest, python: "3.13" }
           - { os: windows-latest, python: "3.13" }
     steps:
