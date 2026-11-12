@@ -429,3 +429,87 @@ jobs:
           print("::notice title=ports-risk::" + str(ids))
           assert "exposed-postgresql" in ids, ids
           EOF2
+
+  # The whole chain on a real (deliberately insecure) web application with a database, in Docker Compose.
+  shop-app:
+    name: Full assessment of the demo web app with a database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install . bandit==1.8.6
+      - name: Start the application and its database
+        working-directory: examples/shop-app
+        run: |
+          docker compose up -d --build 2>&1 | tail -3
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:5000/healthz > /dev/null && break; sleep 2; done
+          echo "::notice title=shop-up::health=$(curl -s http://127.0.0.1:5000/healthz) products=$(curl -s http://127.0.0.1:5000/api/products | head -c 120) account-anonymous=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/account)"
+      - name: Scan (code, dependencies, images, configuration, database)
+        run: |
+          set +e
+          polyscan scan examples/shop-app --json scan.json --sarif scan.sarif --fail-on none > scan.log 2>&1
+          echo "scan exit=$?"
+      - name: Live site, anonymous and with the form login; a wrong password must fail
+        env:
+          SHOP_PASSWORD: alice-demo-pw
+          WRONG_PASSWORD: not-the-password
+        run: |
+          set +e
+          polyscan dast http://localhost:5000 --json dast-anon.json --fail-on none > anon.log 2>&1; echo "anon exit=$?"
+          polyscan dast http://localhost:5000 --login-url http://localhost:5000/login --login-user alice \
+            --login-password-env SHOP_PASSWORD --login-check-url http://localhost:5000/account \
+            --json dast.json --fail-on none > auth.log 2>&1; echo "::notice title=shop-auth-exit::$? $(grep -i -m3 'zap' auth.log | tr '\n' ' ' | head -c 600)"
+          polyscan dast http://localhost:5000 --login-url http://localhost:5000/login --login-user alice \
+            --login-password-env WRONG_PASSWORD --login-check-url http://localhost:5000/account \
+            --json dast-wrong.json --fail-on none > wrong.log 2>&1; echo "::notice title=shop-wrong-exit::$? $(grep -i -m3 'zap' wrong.log | tr '\n' ' ' | head -c 600)"
+          grep -l "alice-demo-pw" *.json *.log && echo "::error::the password is in an output file" || true
+          polyscan ports --json ports.json --fail-on none > ports.log 2>&1; echo "ports exit=$?"
+      - name: Risk register and assessment report
+        run: |
+          set +e
+          polyscan report scan.json dast.json ports.json --html assessment.html --title "shop-app assessment" \
+            --target "shop-app (Flask + PostgreSQL, Docker Compose)" --tester CI --authorized-by "repository owner" --intel > report.log 2>&1
+          echo "report exit=$?"
+          polyscan risk scan.json dast.json ports.json --json risk.json --intel > /dev/null 2>&1
+          polyscan sbom examples/shop-app --output sbom.json > sbom.log 2>&1; echo "sbom exit=$? $(cat sbom.log | head -c 200)"
+      - name: Check what was found
+        run: |
+          python - <<'EOF6'
+          import json, sys
+          def load(n):
+              try: return json.load(open(n))
+              except Exception as e: return {"tools": [], "findings": [], "error": str(e)}
+          scan, anon, auth, wrong, ports, risk = (load(n) for n in ("scan.json", "dast-anon.json", "dast.json", "dast-wrong.json", "ports.json", "risk.json"))
+          st = lambda d: {t["name"]: (t["status"], t["findings"], t["detail"][:160]) for t in d["tools"]}
+          print("::notice title=shop-scan::" + str(st(scan))[:3000])
+          print("::notice title=shop-dast::" + f"anon={st(anon)} auth={st(auth)} notes={[n[:60] for n in auth.get('notes', [])]}"[:3000])
+          print("::notice title=shop-wrong::" + str(st(wrong))[:1500])
+          urls = lambda d: sorted({f["file"] for f in d["findings"] if f["tool"] == "zap"})
+          banner = lambda d: [f["file"] for f in d["findings"] if "X-Powered-By" in f["message"]]
+          print("::notice title=shop-urls::" + f"anon={urls(anon)} auth={urls(auth)} banner-anon={banner(anon)} banner-auth={banner(auth)}"[:3000])
+          rules = lambda tool: sorted({f["rule"] for f in scan["findings"] if f["tool"] == tool})
+          print("::notice title=shop-rules::" + f"db={rules('db-config')} bandit={rules('bandit')} semgrep={rules('semgrep')[:12]} ports={sorted(f['rule'] for f in ports['findings'])}"[:3500])
+          top = [(r["id"], r["level"], r["score"], r["title"][:70], (r.get("owasp_risk_rating") or {}).get("severity")) for r in risk.get("risks", [])[:8]]
+          print("::notice title=shop-top-risks::" + str(top)[:3500])
+          problems = []
+          s = st(scan)
+          for name in ("semgrep", "gitleaks", "osv-scanner", "bandit", "db-config", "trivy", "checkov"):
+              if s.get(name, ("missing",))[0] != "ok" or not s[name][1]:
+                  problems.append(f"scan {name}: {s.get(name)}")
+          if st(auth).get("zap", ("missing",))[0] != "ok": problems.append("authenticated ZAP scan did not run")
+          if not banner(auth) or banner(anon): problems.append("the banner behind the login must be found only by the authenticated scan")
+          if any("logout" in u for u in urls(auth)): problems.append("the scan followed the logout link")
+          if st(wrong).get("zap", ("missing",))[0] != "error": problems.append(f"a wrong password must be an error, got {st(wrong).get('zap')}")
+          if "polyscan-db-weak-password" not in rules("db-config"): problems.append("default database password not found")
+          if not any("5432" in f["file"] or "postgres" in f["rule"] for f in ports["findings"]): problems.append("published database port not seen by ports")
+          html = open("assessment.html", encoding="utf-8").read() if __import__("os").path.exists("assessment.html") else ""
+          if "2. Executive summary" not in html: problems.append("assessment report missing")
+          if problems:
+              print("::error title=shop-problems::" + " | ".join(problems)[:3500]); sys.exit(1)
+          EOF6
+      - name: Stop
+        if: always()
+        working-directory: examples/shop-app
+        run: docker compose down -v 2>&1 | tail -1

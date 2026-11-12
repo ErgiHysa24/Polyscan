@@ -11,6 +11,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .detect import DEFAULT_EXCLUDES, detect_languages
 from .models import ERROR, OK, SKIPPED, UNAVAILABLE, Finding, ToolResult
@@ -148,8 +149,9 @@ def _stop_container(name: str) -> None:
 
 def _hide(text: str, opts: ScanOptions) -> str:
     """Whatever a tool prints, the secret header value never reaches a report or the screen."""
-    if opts.auth_value and text:
-        return text.replace(opts.auth_value, "[hidden]")
+    for secret in (opts.auth_value, opts.login_password):
+        if secret and text:
+            text = text.replace(secret, "[hidden]")
     return text
 
 
@@ -265,6 +267,11 @@ def scan(
     return result
 
 
+def _origin(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def dast(
     target: Target,
     mode: str = "auto",
@@ -279,6 +286,17 @@ def dast(
     # Inside a container "localhost" is the container itself, so the tool is given the
     # address of the host machine instead; the report still shows the original URL.
     opts = replace(opts or ScanOptions(), target_url=target.for_container())
+    if opts.login_url:
+        # the login and check pages are on the same site: seen from the container they move with it
+        old, new = _origin(target.url), _origin(opts.target_url)
+        opts = replace(opts, login_url=new + opts.login_url[len(old):], login_check_url=new + opts.login_check_url[len(old):])
+        result_note = (
+            f"AUTHENTICATED SCAN: logged in through the form at {opts.login_url.replace(new, old, 1)} as '{opts.login_user}' "
+            "(password hidden); the scan was accepted only after a protected page answered 200. Use a test account "
+            "with the least privileges possible, never a real administrator."
+        )
+    else:
+        result_note = ""
     result = ScanResult(target.url, {}, mode=mode, kind="site")
     if not target.local:
         result.notes.append(
@@ -286,6 +304,8 @@ def dast(
             "--allow-remote was given, which means you stated that you own it or have written "
             "authorization to test it."
         )
+    if result_note:
+        result.notes.append(result_note)
     if opts.auth_value:
         result.notes.append(
             f"AUTHENTICATED SCAN: the header '{opts.auth_name}' (value hidden) was added to every request, "

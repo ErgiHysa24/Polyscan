@@ -790,6 +790,13 @@ class ScanOptions:
     zap_minutes: int = 1  # live-site scans: minutes the spider may run
     auth_name: str = ""  # live-site scans: header added to every request (Authorization, Cookie...)
     auth_value: str = field(default="", repr=False)  # its value: a SECRET, so never in repr() or logs
+    # live-site scans, login through the site's own form (see zap_login_plan)
+    login_url: str = ""
+    login_user: str = ""
+    login_password: str = field(default="", repr=False)  # a SECRET
+    login_user_field: str = "username"
+    login_password_field: str = "password"
+    login_check_url: str = ""  # a page that answers 200 only when logged in: proves the login worked
 
 
 class Semgrep(Tool):
@@ -1121,6 +1128,66 @@ def zap_auth_properties(name: str, value: str) -> str:
     ])  # fmt: skip
 
 
+PLAN_PATH = "/tmp/zap-plan.yaml"
+FIELD_OK = re.compile(r"[A-Za-z0-9_.\[\]-]{1,64}")
+LOGOUT_PATHS = r"(?i).*(logout|log-out|log_out|signout|sign-out|sign_out).*"
+
+
+def check_login(opts: ScanOptions) -> None:
+    """Raise ValueError when the form-login settings cannot work or are unsafe."""
+    if not opts.login_user or not opts.login_password:
+        raise ValueError("the user name or the password is empty")
+    for label, value in (("user name", opts.login_user), ("password", opts.login_password)):
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value) or len(value) > 256:
+            raise ValueError(f"the {label} has control characters or is longer than 256 characters")
+    for label, value in (("--login-user-field", opts.login_user_field), ("--login-password-field", opts.login_password_field)):
+        if not FIELD_OK.fullmatch(value):
+            raise ValueError(f"{label} must be a form field name (letters, digits, _ . - [ ])")
+    if not opts.login_check_url:
+        raise ValueError("--login-check-url is needed: a page that only a logged-in user can open, to prove the login worked")
+
+
+def zap_login_plan(opts: ScanOptions) -> str:
+    """The ZAP Automation Framework plan for a scan behind a form login, as JSON (which is valid YAML,
+    and lets json.dumps do all the quoting: a password can contain any character without breaking out).
+
+    What the plan does, in order:
+      1. logs in by posting the form (ZAP repeats it by itself when the session expires);
+      2. opens the check page AS THE USER and requires 200: if the login did not work the plan fails,
+         so an anonymous scan is never passed off as an authenticated one;
+      3. follows links as the user (spider), never the logout link;
+      4. waits for the passive rules to finish and writes the report.
+    There is no activeScan job: like the rest of polyscan, this sends no attacks."""
+    parts = urlsplit(opts.target_url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    body = f"{opts.login_user_field}={{%username%}}&{opts.login_password_field}={{%password%}}"
+    plan = {
+        "env": {
+            "contexts": [{
+                "name": "polyscan", "urls": [origin], "includePaths": [re.escape(origin) + ".*"], "excludePaths": [LOGOUT_PATHS],
+                "authentication": {
+                    "method": "form",
+                    "parameters": {"loginPageUrl": opts.login_url, "loginRequestUrl": opts.login_url, "loginRequestBody": body},
+                    "verification": {"method": "poll", "pollUrl": opts.login_check_url, "pollFrequency": 60, "pollUnits": "requests",
+                                     "loggedInRegex": r"HTTP/\S+ 200"},
+                },
+                "sessionManagement": {"method": "cookie"},
+                "users": [{"name": "polyscan-user", "credentials": {"username": opts.login_user, "password": opts.login_password}}],
+            }],
+            "parameters": {"failOnError": True, "failOnWarning": False, "progressToStdout": True},
+        },
+        "jobs": [
+            {"type": "requestor", "name": "login-check", "parameters": {"user": "polyscan-user"},
+             "requests": [{"url": opts.login_check_url, "name": "protected page", "method": "GET", "responseCode": 200}]},
+            {"type": "spider", "parameters": {"context": "polyscan", "user": "polyscan-user", "url": opts.target_url,
+                                              "maxDuration": opts.zap_minutes}},
+            {"type": "passiveScan-wait", "parameters": {"maxDuration": 5}},
+            {"type": "report", "parameters": {"template": "traditional-json", "reportDir": "/zap/wrk", "reportFile": "zap-report.json"}},
+        ],
+    }  # fmt: skip
+    return json.dumps(plan, indent=1)
+
+
 class Zap(Tool):
     """OWASP ZAP baseline: browses a running site and checks what it answers.
 
@@ -1142,13 +1209,19 @@ class Zap(Tool):
     def docker_flags(self, opts):
         # Lets the container reach a server on this computer (localhost inside a container is the container).
         flags = ["--add-host", f"{HOST_FROM_CONTAINER}:host-gateway"]
-        if opts.auth_value:
+        if opts.auth_value or opts.login_url:
             flags.append("-i")  # keep stdin open: the login header arrives there
         return flags
 
     def docker_cmd(self, opts):
         if not opts.target_url:
             raise ValueError("no target URL")
+        if opts.login_url:
+            # The plan holds the password, so it arrives on standard input like the header secret does.
+            # ZAP exits 1 when the plan failed (for example the login check): turned into 3, because 1 is a
+            # normal "findings" code for the baseline scan and must not be read as success here.
+            script = f'(umask 077; cat > {PLAN_PATH}) && zap.sh -cmd -autorun {PLAN_PATH}; c=$?; [ "$c" = 1 ] && exit 3; exit "$c"'
+            return ["sh", "-c", script]
         cmd = ["zap-baseline.py", "-t", opts.target_url, "-J", self.report_file, "-m", str(opts.zap_minutes)]
         if not opts.auth_value:
             return cmd
@@ -1160,6 +1233,8 @@ class Zap(Tool):
         return ["sh", "-c", script, "sh", *cmd, "-z", f"-configfile {AUTH_PATH}"]
 
     def stdin_text(self, opts):
+        if opts.login_url:
+            return zap_login_plan(opts)
         return zap_auth_properties(opts.auth_name, opts.auth_value) if opts.auth_value else None
 
 

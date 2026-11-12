@@ -28,7 +28,7 @@ from .riskreport import to_markdown as risk_markdown
 from .riskreport import to_terminal as risk_terminal
 from .scanner import MODES, dast, scan
 from .target import TargetError, classify
-from .tools import ScanOptions, all_tools, check_auth, pinned_version, site_tools
+from .tools import ScanOptions, all_tools, check_auth, check_login, pinned_version, site_tools
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -81,6 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="name of an ENVIRONMENT VARIABLE holding the value of a header added to every request "
                         "(for example 'Bearer <token>' or 'session=<cookie>'), to scan the pages behind a login. "
                         "The value is never taken from the command line, so it stays out of shell history")  # fmt: skip
+    d.add_argument("--login-url", metavar="URL", help="log in through the site's own form: the URL the form posts to")
+    d.add_argument("--login-user", metavar="NAME", help="user name for --login-url (use a test account)")
+    d.add_argument("--login-password-env", metavar="VAR", help="name of the environment variable that holds the password")
+    d.add_argument("--login-user-field", default="username", metavar="NAME", help="name of the form's user field (default: username)")
+    d.add_argument("--login-password-field", default="password", metavar="NAME", help="name of the form's password field (default: password)")
+    d.add_argument("--login-check-url", metavar="URL",
+                   help="a page only a logged-in user can open (answers 200): the scan is refused if the login did not work")
     d.add_argument("--auth-header-name", default="Authorization", metavar="NAME",
                    help="header used with --auth-header-env: Authorization (default) or Cookie")
     d.add_argument("--mode", choices=MODES, default="auto", help="ZAP runs only in Docker")
@@ -250,6 +257,11 @@ If you OWN this site, or have that authorization in writing, run the command aga
 with --allow-remote. See "Uso responsabile e autorizzazione" in the README."""
 
 
+def _site(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
 def cmd_dast(args) -> int:
     try:
         target = classify(args.url)
@@ -276,6 +288,27 @@ def cmd_dast(args) -> int:
                   "(otherwise the secret travels in clear text)", file=sys.stderr)
             return EXIT_USAGE
         opts = replace(opts, auth_name=args.auth_header_name, auth_value=value)
+    if args.login_url:
+        if args.auth_header_env:
+            print("error: use either --login-url (form login) or --auth-header-env (token or cookie), not both", file=sys.stderr)
+            return EXIT_USAGE
+        opts = replace(opts, login_url=args.login_url, login_user=args.login_user or "",
+                       login_password=os.environ.get(args.login_password_env or "", ""),
+                       login_user_field=args.login_user_field, login_password_field=args.login_password_field,
+                       login_check_url=args.login_check_url or "")  # fmt: skip
+        try:
+            check_login(opts)
+            for label, url in (("--login-url", opts.login_url), ("--login-check-url", opts.login_check_url)):
+                # the password must only ever go to the site being tested
+                if _site(url) != _site(args.url):
+                    raise ValueError(f"{label} must be on the same site as the target ({_site(args.url)})")
+        except ValueError as exc:
+            print(f"error: form login: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        if not target.local and urlsplit(args.url).scheme != "https":
+            print("error: with a form login, a site that is not on your own network must use https "
+                  "(otherwise the password travels in clear text)", file=sys.stderr)
+            return EXIT_USAGE
     result = dast(target, args.mode, opts, args.timeout)
     return _finish(args, result)
 

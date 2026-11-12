@@ -1,0 +1,25 @@
+# DELIBERATELY INSECURE demo for polyscan. Do not copy.
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/shop?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shop
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
