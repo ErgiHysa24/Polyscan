@@ -108,6 +108,8 @@ CWE = {
     "400": ("Uncontrolled resource consumption", "A04", "D", ["T1499"]),
     "250": ("Execution with unnecessary privileges", "A04", "E", ["T1611", "T1068"]),
     "269": ("Improper privilege management", "A04", "E", ["T1068"]),
+    "1393": ("Use of a default password", "A07", "SI", ["T1078", "T1110"]),
+    "1327": ("Binding to an unrestricted IP address", "A05", "I", ["T1046"]),
     "1104": ("Use of unmaintained third-party components", "A06", "TIED", ["T1190"]),
 }
 

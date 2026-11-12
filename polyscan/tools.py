@@ -371,6 +371,19 @@ def parse_spotbugs(text: str, root: str) -> list[Finding]:
     return findings
 
 
+def parse_dbaudit(text: str, root: str) -> list[Finding]:
+    """polyscan.dbaudit's own JSON (database configuration checks)."""
+    data = _loads(text)
+    if not isinstance(data, dict) or data.get("kind") != "dbaudit":
+        raise ValueError("this is not polyscan's database audit output")
+    return [
+        Finding("db-config", Severity.parse(str(f.get("severity", "medium"))), str(f.get("rule", "")),
+                str(f.get("message", "")), str(f.get("file", "")), int(f.get("line") or 0), "config", "database",
+                cwe=cwe_field(f.get("cwe")))  # fmt: skip
+        for f in data.get("findings") or []
+    ]
+
+
 ZAP_RISK = {"0": Severity.INFO, "1": Severity.LOW, "2": Severity.MEDIUM, "3": Severity.HIGH}
 
 
@@ -949,6 +962,26 @@ class SpotBugs(Tool):
         raise NotImplementedError("spotbugs has no official Docker image")
 
 
+class DbConfig(Tool):
+    """polyscan's own database configuration checks (PostgreSQL, MySQL/MariaDB, MongoDB, Redis): runs everywhere,
+    needs nothing but Python. Reads compose files, .env files and the databases' configuration files."""
+
+    def __init__(self):
+        super().__init__(
+            "db-config", sys.executable, None, parse_dbaudit,
+            ok_codes=(0,), skip_codes={4: "no database configuration found"},
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        cmd = [sys.executable, "-m", "polyscan.dbaudit", target]
+        for pattern in opts.excludes:
+            cmd += ["--exclude", pattern]
+        return cmd
+
+    def docker_cmd(self, opts):
+        raise NotImplementedError("db-config runs with the local Python")
+
+
 class Trivy(Tool):
     """Known vulnerabilities in the Docker images a project uses (the operating system and packages inside).
 
@@ -1080,4 +1113,4 @@ def site_tools() -> list[Tool]:
 
 
 def all_tools() -> list[Tool]:
-    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), ComposerAudit(), Progpilot(), SpotBugs(), Trivy(), Checkov()]
+    return [Semgrep(), Gitleaks(), GitleaksHistory(), OsvScanner(), Bandit(), NpmAudit(), CargoAudit(), ComposerAudit(), Progpilot(), SpotBugs(), DbConfig(), Trivy(), Checkov()]

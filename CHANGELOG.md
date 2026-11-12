@@ -6,6 +6,7 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finch√© la versione √
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Audit della configurazione dei database** (`db-config`, sempre disponibile): PostgreSQL, MySQL/MariaDB, MongoDB e Redis in compose, `.env` e file di configurazione; le password non vengono mai stampate.
 - **OWASP Risk Rating Methodology** come seconda valutazione di ogni rischio (16 fattori, ognuno con il motivo; `--factors` per i fattori dell'organizzazione e le correzioni). Il rapporto di assessment incrocia i due metodi.
 - **Rapporto di assessment** (`polyscan report`): un documento stampabile con ambito e autorizzazione, sintesi, copertura dei controlli, matrice e registro, trattamento, ATT&CK per tattica, retest e appendice.
 - Documentazione: `docs/METODOLOGIA.md` (fasi e standard) e `docs/CONFRONTO.md` (strumenti simili e roadmap).

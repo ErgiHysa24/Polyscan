@@ -63,6 +63,7 @@ CHECKS = {
     "composer-audit": ("Dependencies (SCA)", "Packagist advisories and abandoned packages for composer.lock"),
     "progpilot": ("Static analysis (SAST)", "PHP taint analysis: untrusted input reaching SQL, shell, eval, output"),
     "spotbugs": ("Static analysis (SAST)", "Java bytecode, Find Security Bugs rules (injection, crypto, deserialization)"),
+    "db-config": ("Database configuration", "PostgreSQL, MySQL/MariaDB, MongoDB, Redis: missing authentication, default passwords, cleartext, superuser use"),
     "trivy": ("Container images", "Known vulnerabilities (HIGH, CRITICAL) in the Docker images named in the project"),
     "checkov": ("Configuration (IaC)", "Dockerfile, docker-compose, Kubernetes and Terraform misconfigurations"),
     "zap": ("Running application (DAST)", "Passive scan of the live site: headers, cookies, information leaks, forms (no attacks sent)"),

@@ -26,6 +26,7 @@ polyscan scan . --html report.html
 | Librerie PHP (seconda fonte) | `composer audit --locked`, una volta per ogni `composer.lock` | PHP | solo installato (serve `composer` e internet) |
 | Codice PHP: da dove entra un dato non fidato e dove arriva (SQL injection, XSS, comandi, `eval`...) | [Progpilot](https://github.com/designsecurity/progpilot) (analisi "taint") | PHP | solo installato (serve `php`) |
 | Codice Java, in più: iniezioni, crittografia debole, deserializzazione... | [SpotBugs](https://spotbugs.github.io) con il plugin [Find Security Bugs](https://find-sec-bugs.github.io) | Java | solo installato; **legge le classi compilate**, quindi il progetto va prima compilato (`mvn compile`, `gradle classes`) |
+| Configurazione dei database: accesso senza password, password di default, connessioni in chiaro, uso del superutente | controlli di polyscan (`db-config`) su compose, `.env`, `pg_hba.conf`, `postgresql.conf`, `my.cnf`, `mongod.conf`, `redis.conf` | PostgreSQL, MySQL/MariaDB, MongoDB, Redis | sempre (solo Python) |
 | Codice Python, in più | [Bandit](https://bandit.readthedocs.io) | Python | solo installato (`pip install bandit`) |
 
 OSV-Scanner legge `requirements.txt`, `package-lock.json`, `pom.xml`, `composer.lock` e `Cargo.lock`. Senza questi file non può controllare le librerie: il rapporto lo dice.
@@ -230,6 +231,22 @@ Le porte note (database come PostgreSQL, MySQL, MongoDB, Redis, Memcached, Elast
 - **Solo Linux** (serve `ss`, pacchetto `iproute2`): su Windows o macOS il controllo risulta *non eseguito*, mai "pulito". Eseguilo sulla VM o sul server dove gira l'app. Senza i permessi di amministratore `ss` mostra il nome del programma solo per i tuoi processi.
 - Se `ss` non dà un output comprensibile, il controllo risulta **fallito**, non vuoto: una macchina vera ha sempre qualcosa in ascolto.
 - Il rapporto JSON si può dare a `polyscan risk` come gli altri.
+
+## Configurazione dei database (`db-config`)
+
+Controllo scritto dentro polyscan, senza strumenti esterni: legge solo file di testo e non si collega mai a un database.
+
+| Cosa cerca | Esempi | Gravità | CWE |
+|---|---|---|---|
+| Accesso senza autenticazione | `POSTGRES_HOST_AUTH_METHOD=trust`, `MYSQL_ALLOW_EMPTY_PASSWORD=yes`, `trust` in `pg_hba.conf`, `skip-grant-tables`, MongoDB `authorization: disabled` o `--noauth`, Redis `protected-mode no` | critica / alta | CWE-306 |
+| Password di default o indovinabili | `POSTGRES_PASSWORD=postgres`, `MYSQL_ROOT_PASSWORD=root`, password in una stringa di connessione | alta | CWE-1393 |
+| Traffico in chiaro | `sslmode=disable`, `ssl = off`, metodo `password` in `pg_hba.conf`, `require_secure_transport = OFF` | media | CWE-319 |
+| Hash deboli | `md5` in `pg_hba.conf`, `password_encryption = md5` | bassa | CWE-328 |
+| Troppi privilegi | l'applicazione si collega come `postgres` / `root` | media | CWE-250 |
+| `pg_hba.conf` aperto a tutti | righe `host` per `0.0.0.0/0`, `::/0` | media | CWE-1327 |
+| In ascolto su tutte le interfacce | `listen_addresses='*'`, `bind-address=0.0.0.0` | bassa (normale in un container) | CWE-1327 |
+
+Il valore di una password viene confrontato con un elenco di valori deboli ma **non viene mai stampato**. Un valore preso da una variabile (`${POSTGRES_PASSWORD}`) non viene giudicato, perché polyscan non può vederlo. Nei file di esempio (`.env.example`, `*.sample`) la gravità scende a bassa. Limite: vede la configurazione scritta nei file del progetto, non quella effettiva di un database in esecuzione (utenti e privilegi reali, `GRANT`, ruoli) né le password forti ma riutilizzate.
 
 ## Configurazione e storia git
 
