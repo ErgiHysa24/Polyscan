@@ -114,6 +114,26 @@ Regole della tabella: una CWE senza tecnica adatta resta senza (per esempio CSRF
 
 I campi sono nel JSON del rischio (`risks[].threat`: `basis`, `cwe`, `cve`, `advisories`, `owasp_top10`, `stride`, `attack[]` con id, nome e tattica) e nelle colonne di testo, Markdown e HTML. Ogni segnalazione dei rapporti `scan`/`dast` ha ora anche il campo `cwe`; i vecchi rapporti senza il campo si leggono ancora.
 
+### Seconda valutazione: OWASP Risk Rating Methodology
+
+Ogni rischio è valutato anche con la [OWASP Risk Rating Methodology](https://owasp.org/www-community/OWASP_Risk_Rating_Methodology), indipendente dal punteggio di polyscan: 16 fattori da 0 a 9. La **probabilità** è la media di agente di minaccia (abilità, motivazione, opportunità, numero di attaccanti) e vulnerabilità (facilità di scoperta, facilità di sfruttamento, notorietà, rilevamento delle intrusioni). L'**impatto** è la media dei fattori di business (danno economico, reputazione, conformità, privacy) se sono noti, altrimenti di quelli tecnici (confidenzialità, integrità, disponibilità, tracciabilità). Sotto 3 è LOW, sotto 6 MEDIUM, altrimenti HIGH, e la tabella OWASP dà la gravità finale (Note, Low, Medium, High, Critical).
+
+Molti fattori descrivono l'organizzazione, non la vulnerabilità, quindi nessuno scanner li conosce. polyscan li ricava così, e scrive per ognuno il motivo:
+
+| Fattori | Da dove vengono |
+|---|---|
+| agente di minaccia | `--exposure` (internet: numero 9 "utenti anonimi", opportunità 7) e `--data` (dati personali: motivazione 9) |
+| facilità di scoperta e di sfruttamento, notorietà | tipo di segnalazione; CVE in KEV: sfruttamento 9 e notorietà 9; EPSS ≥ 10%: sfruttamento almeno 5 |
+| rilevamento delle intrusioni | 8 ("registrato ma non controllato") se non indicato |
+| impatto tecnico | minacce STRIDE del rischio (I→confidenzialità, T→integrità, D→disponibilità, S/R→tracciabilità) per la gravità dello strumento |
+| impatto di business | solo dal file `--factors`, tutti e quattro o nessuno |
+
+```bash
+polyscan risk scan.json --factors polyscan-factors.json
+```
+
+Il file (`examples/vulnerable-demo/polyscan-factors.json`) può fissare l'agente di minaccia, il rilevamento delle intrusioni, l'impatto di business e correggere qualsiasi fattore per una regola o un file. Il rapporto di assessment mostra una tabella che incrocia il livello di polyscan e la gravità OWASP: le celle fuori diagonale sono i rischi su cui i due metodi non sono d'accordo, e sono quelli da guardare.
+
 ### Trattamento del rischio: chi decide cosa, entro quando
 
 Un registro dei rischi non finisce col punteggio: per ogni rischio qualcuno sceglie una **risposta** (ISO/IEC 27005, NIST SP 800-30/800-39) e la scelta va scritta, con un responsabile e una data. polyscan legge queste decisioni da un file JSON tenuto nel repository (quindi con la storia di chi ha deciso cosa):

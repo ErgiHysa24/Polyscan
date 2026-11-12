@@ -165,7 +165,8 @@ jobs:
           set +e
           polyscan report "$REPORT_DIR/polyscan-report.json" --html assessment.html --title "Demo assessment" \
             --target "examples/vulnerable-demo" --tester CI --authorized-by "repository owner" \
-            --decisions examples/vulnerable-demo/polyscan-risk.json --retest "$REPORT_DIR/polyscan-report.json"
+            --decisions examples/vulnerable-demo/polyscan-risk.json --retest "$REPORT_DIR/polyscan-report.json" \
+            --factors examples/vulnerable-demo/polyscan-factors.json
           echo "report exit=$?"
           polyscan diff "$REPORT_DIR/polyscan-report.json" "$REPORT_DIR/polyscan-report.json" --json diff.json > /dev/null
           echo "diff exit=$?"
@@ -173,6 +174,7 @@ jobs:
           python - <<'EOF4'
           import json, sys
           html = open("assessment.html", encoding="utf-8").read()
+          if "Second opinion: OWASP Risk Rating" not in html: sys.exit("no OWASP comparison")
           missing = [s for s in ("1. Scope", "2. Executive summary", "3. Method", "4. Risk matrix", "5. Risk treatment", "6. Threats", "7. Retest", "8. Appendix") if s not in html]
           d = json.load(open("diff.json"))
           print("::notice title=assessment::" + f"{len(html)} chars, missing sections: {missing}; self-diff: {d['summary']}")

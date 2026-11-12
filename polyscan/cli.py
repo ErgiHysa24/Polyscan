@@ -17,6 +17,7 @@ from .ports import check as check_ports
 from .report import to_html, to_json, to_markdown, to_terminal
 from .risk import DATA, EXPOSURES, LEVELS, Context, Source, assess, load_report, merge
 from .intel import gather as gather_intel
+from .owasprr import load as load_factors
 from .threats import cve_ids
 from .treatment import load as load_decisions
 from .treatment import template as decisions_template
@@ -129,6 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="download CISA KEV and FIRST EPSS to see which CVEs are exploited in the wild (needs internet)")  # fmt: skip
     r.add_argument("--kev-file", metavar="FILE", help="use this CISA KEV catalog (JSON) instead of downloading it")
     r.add_argument("--epss-file", metavar="FILE", help="use these EPSS scores (API JSON or FIRST's CSV) instead of downloading them")
+    r.add_argument("--factors", metavar="FILE",
+                   help="OWASP Risk Rating factors of your organisation (threat agent, intrusion detection, business impact, overrides)")  # fmt: skip
     r.add_argument("--decisions-template", metavar="FILE",
                    help="write a decisions file with one 'todo' entry per risk, to fill in")  # fmt: skip
 
@@ -148,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--intel", action="store_true", help="download CISA KEV and FIRST EPSS")
     rp.add_argument("--kev-file", metavar="FILE")
     rp.add_argument("--epss-file", metavar="FILE")
+    rp.add_argument("--factors", metavar="FILE", help="OWASP Risk Rating factors (see `polyscan risk --factors`)")
     rp.add_argument("--retest", metavar="BEFORE.json", help="an earlier report: adds the retest section (fixed / still open / new)")
     df = sub.add_parser("diff", help="retest: compare two JSON reports (before / after the fixes): fixed, still open, new")
     df.add_argument("before", help="JSON report of the first scan")
@@ -283,6 +287,7 @@ def cmd_risk(args) -> int:
         ctx = Context(args.exposure, args.data)
         sources = [load_report(path) for path in args.reports]
         plan = load_decisions(args.decisions) if args.decisions else None
+        factors = load_factors(args.factors) if args.factors else None
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -291,7 +296,7 @@ def cmd_risk(args) -> int:
     if args.intel or args.kev_file or args.epss_file:
         cves = sorted({c for f in findings for c in cve_ids(f)})
         intel = gather_intel(cves, args.intel, args.kev_file, args.epss_file)
-    risks = assess(findings, ctx, plan, intel)
+    risks = assess(findings, ctx, plan, intel, factors)
     print(risk_terminal(ctx, risks, sources, args.limit, plan, intel))
     for path, write, label in ((args.json, risk_json, "JSON"), (args.markdown, risk_markdown, "Markdown"), (args.html, risk_html, "HTML")):
         if path:
@@ -318,6 +323,7 @@ def cmd_report(args) -> int:
         sources = [load_report(path) for path in args.reports]
         plan = load_decisions(args.decisions) if args.decisions else None
         before = load_report(args.retest) if args.retest else None
+        factors = load_factors(args.factors) if args.factors else None
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -325,7 +331,7 @@ def cmd_report(args) -> int:
     intel = None
     if args.intel or args.kev_file or args.epss_file:
         intel = gather_intel(sorted({c for f in findings for c in cve_ids(f)}), args.intel, args.kev_file, args.epss_file)
-    risks = assess(findings, ctx, plan, intel)
+    risks = assess(findings, ctx, plan, intel, factors)
     retest = None
     if before:
         # the retest compares against everything read now, as one report

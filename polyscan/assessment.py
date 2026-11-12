@@ -33,6 +33,7 @@ from .report import CSS, _e
 from .risk import DATA, EXPOSURES, LEVEL_UPPER, LEVELS, TARGETS, Context, Risk, Source
 from .riskreport import (
     RISK_CSS,
+    _owasp_html,
     STATE_LABEL,
     _matrix_html,
     _threat_html,
@@ -220,11 +221,22 @@ def to_html(meta: Meta, ctx: Context, risks: list[Risk], sources: list[Source], 
         reg_rows.append(
             f"<tr><td><b>{_e(r.id)}</b></td><td class='sev lvl-{r.level}'>{_e(r.level)}<br>{r.score}<br><span class='muted'>L{r.likelihood} x I{r.impact}</span></td>"
             f"<td><b>{_e(r.title)}</b>{(' <span class=kev>' + _e(kev_mark(r)) + '</span>') if kev_mark(r) else ''}<br><span class='muted'>{_e(r.kind)} &middot; {_e(', '.join(r.tools))} &middot; {_e(r.rule)} &middot; {r.count}x</span>"
-            f"<br><code>{_e(', '.join(r.where))}</code>{_threat_html(r)}<details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
+            f"<br><code>{_e(', '.join(r.where))}</code>{_threat_html(r)}{_owasp_html(r)}<details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
             f"<td>{_e(r.mitigation)}<br><span class='muted'>Respond: {_e(r.target)}</span><br><span class='st st-{_e(r.state)}'>{_e(treatment_text(r) or STATE_LABEL['untreated'])}</span></td></tr>"
         )  # fmt: skip
+    # polyscan level vs OWASP severity: where the two methods agree and where they do not
+    owasp_levels = ["Critical", "High", "Medium", "Low", "Note"]
+    cross = Counter((r.level, r.owasp.severity) for r in risks if r.owasp)
+    cross_rows = "".join(
+        f"<tr><th>{_e(lv)}</th>" + "".join(f"<td>{cross.get((lv, ow), '') or ''}</td>" for ow in owasp_levels) + "</tr>" for lv in ORDER
+    )
+    compare = (
+        "<p><b>Second opinion: OWASP Risk Rating Methodology</b> (rows: polyscan level, columns: OWASP severity). "
+        "Cells off the diagonal are where the two methods disagree: read the factors of those risks.</p>"
+        f"<div class='wrap'><table class='matrix'><tr><th></th>" + "".join(f"<th>{o}</th>" for o in owasp_levels) + f"</tr>{cross_rows}</table></div>"
+    ) if cross else ""
     register = (
-        f"<h2>4. Risk matrix and register</h2>{_matrix_html(risks)}"
+        f"<h2>4. Risk matrix and register</h2>{_matrix_html(risks)}{compare}"
         + ("<div class='wrap'><table class='f'><tr><th>ID</th><th>Level</th><th>Risk</th><th>Response</th></tr>" + "".join(reg_rows) + "</table></div>"
            if reg_rows else "<p class='muted'>No risks.</p>")
     )  # fmt: skip

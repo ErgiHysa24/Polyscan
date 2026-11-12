@@ -28,6 +28,7 @@ from pathlib import Path
 from .models import ERROR, UNAVAILABLE, Finding, Severity
 from .threats import Threat, threat_for
 from .intel import Intel, adjust
+from .owasprr import Factors, Rating, rate
 from .treatment import Decision, Plan, split
 
 MAX_REPORT_BYTES = 50 * 1024 * 1024
@@ -156,6 +157,7 @@ class Risk:
     treatment: Decision | None = None  # what the team decided (see treatment.py)
     today: object = None  # the date the treatment is judged at
     intel: dict = field(default_factory=dict)  # {"kev": {...}, "epss": {...}} for its CVEs, when asked for
+    owasp: Rating | None = None  # second, independent rating with the OWASP Risk Rating Methodology
 
     @property
     def state(self) -> str:
@@ -191,6 +193,7 @@ class Risk:
             "threat": self.threat.to_dict() if self.threat else None,
             "treatment": self.treatment.to_dict(self.today) if self.treatment else None, "state": self.state,
             "active": self.active, "exploitation": self.intel or None,
+            "owasp_risk_rating": self.owasp.to_dict() if self.owasp else None,
         }  # fmt: skip
 
 
@@ -214,7 +217,8 @@ def score_group(kind: str, severity: Severity, ctx: Context) -> tuple[int, int, 
     return likelihood, clamp(impact), reasons
 
 
-def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | None = None, intel: Intel | None = None) -> list[Risk]:
+def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | None = None, intel: Intel | None = None,
+           factors: Factors | None = None) -> list[Risk]:  # fmt: skip
     """One risk per kind of problem (category + rule), listing every place it occurs.
 
     With a treatment plan, false positives are left out (and kept in plan.false_positives), and a
@@ -248,6 +252,7 @@ def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | Non
                 count=len(items), likelihood=likelihood, impact=impact, reasons=reasons,
                 mitigation=mitigation_for(kind, rule, lead.message), threat=threat, intel=found,
                 treatment=chosen[(kind, rule, n)], today=plan.today if plan else None,
+                owasp=rate(kind, severity, threat.stride, found, rule, [f.file for f in items], ctx.exposure, ctx.data, factors),
             )
         )  # fmt: skip
     risks.sort(key=lambda r: (-r.score, -r.severity, -r.count, r.rule))

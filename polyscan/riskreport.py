@@ -106,6 +106,11 @@ def method_lines() -> list[str]:
         ),
         "this is a transparent heuristic, not a measurement: read the reasons of each risk and adjust what you disagree with",
         (
+            "second opinion: every risk is also rated with the OWASP Risk Rating Methodology (16 factors from 0 to 9; likelihood and "
+            "impact are averages; below 3 LOW, below 6 MEDIUM, else HIGH). Threat-agent factors come from the context, vulnerability "
+            "factors from the finding, technical impact from STRIDE x severity; business impact and overrides from --factors"
+        ),
+        (
             "with threat intelligence (--intel, --kev-file, --epss-file): a CVE in the CISA KEV catalog sets the likelihood to 5; "
             "otherwise an EPSS probability of 10% or more adds 1. Nothing lowers a likelihood"
         ),
@@ -200,6 +205,8 @@ def to_terminal(ctx: Context, risks: list[Risk], sources: list[Source], limit: i
         out.append(f"        do: {_clean(r.mitigation)[:200]}  [{r.target}]")
         if r.treatment:
             out.append(f"        decision: {_clean(treatment_text(r))[:220]}")
+        if r.owasp:
+            out.append(f"        OWASP Risk Rating: {r.owasp.short()}")
     if len(risks) > limit:
         out.append(f"... and {len(risks) - limit} more in the full report.")
     return "\n".join(out) + "\n"
@@ -230,7 +237,7 @@ def to_markdown(ctx: Context, risks: list[Risk], sources: list[Source], plan: Pl
         for r in risks:
             lines.append(
                 f"| {r.id} | {r.level} | {r.score} (L{r.likelihood}xI{r.impact}) | {_md(r.title, 120)}{(' **' + _md(kev_mark(r)) + '**') if kev_mark(r) else ''} | "
-                f"{_md(threat_line(r), 300)} | {_md(', '.join(r.where), 100)} | {_md(r.mitigation, 220)} | {_md(r.target)} | {_md(treatment_text(r) or STATE_LABEL['untreated'], 200)} |"
+                f"{_md(threat_line(r), 300)}{('<br>OWASP RR: ' + _md(r.owasp.short())) if r.owasp else ''} | {_md(', '.join(r.where), 100)} | {_md(r.mitigation, 220)} | {_md(r.target)} | {_md(treatment_text(r) or STATE_LABEL['untreated'], 200)} |"
             )
     else:
         lines.append("No risks in the reports.")
@@ -248,7 +255,7 @@ RISK_CSS = """
 .matrix{table-layout:fixed}.matrix td{height:34px}.matrix td,.matrix th{text-align:center;padding:6px}td b{white-space:nowrap}.matrix th{font-size:11px}
 .m-low{background:rgba(21,101,160,.18)}.m-medium{background:rgba(178,106,0,.25)}
 .m-high{background:rgba(198,40,40,.28)}.m-critical{background:rgba(139,29,44,.45)}
-.reasons{margin:4px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
+.mini td{padding:2px 6px;font-size:12px}.reasons{margin:4px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
 details{margin:8px 0}summary{cursor:pointer;color:var(--muted)}
 .kev{font-size:12px;padding:1px 6px;border-radius:4px;background:var(--critical);color:#fff}
 .st{font-size:12px;padding:1px 6px;border-radius:4px;background:rgba(127,127,127,.15)}.st-acceptance-expired,.st-overdue{color:var(--high);font-weight:600}.st-accepted,.st-done{color:var(--low)}
@@ -265,6 +272,14 @@ def _matrix_html(risks: list[Risk]) -> str:
             tds.append(f'<td class="m-{level_for(likelihood * impact)}">{len(ids) or ""}</td>')
         rows.append(f"<tr><th>{likelihood}</th>{''.join(tds)}</tr>")
     return '<div class="wrap"><table class="matrix">' + "".join(rows) + "</table></div><p class='muted'>Each cell shows how many risks have that likelihood and impact; the register below lists them.</p>"
+
+
+def _owasp_html(r: Risk) -> str:
+    if not r.owasp:
+        return ""
+    rows = "".join(f"<tr><td>{_e(k.replace('_', ' '))}</td><td>{v}</td><td class='muted'>{_e(r.owasp.why.get(k, ''))}</td></tr>" for k, v in r.owasp.factors.items())
+    return (f"<br><span class='muted'>OWASP Risk Rating: <b>{_e(r.owasp.short())}</b></span>"
+            f"<details><summary>OWASP factors</summary><table class='mini'>{rows}</table></details>")  # fmt: skip
 
 
 def _threat_html(r: Risk) -> str:
@@ -302,7 +317,7 @@ def to_html(ctx: Context, risks: list[Risk], sources: list[Source], plan: Plan |
             f'<tr><td><b>{_e(r.id)}</b></td><td class="sev lvl-{r.level}">{_e(r.level)}<br>{r.score}<br>'
             f'<span class="muted">L{r.likelihood} x I{r.impact}</span></td>'
             f"<td><b>{_e(r.title)}</b>{(' <span class=kev>' + _e(kev_mark(r)) + '</span>') if kev_mark(r) else ''}<br><span class='muted'>{_e(r.kind)} &middot; {_e(', '.join(r.tools))} &middot; {_e(r.rule)} &middot; {r.count} occurrence(s)</span>"
-            f"<br><code>{_e(', '.join(r.where))}</code>{_threat_html(r)}<details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
+            f"<br><code>{_e(', '.join(r.where))}</code>{_threat_html(r)}{_owasp_html(r)}<details><summary>why this score</summary><ul class='reasons'>{reasons}</ul></details></td>"
             f"<td>{_e(r.mitigation)}<br><span class='muted'>Suggested: {_e(r.target)}</span>"
             f"<br><span class='st st-{_e(r.state)}'>{_e(treatment_text(r) or STATE_LABEL['untreated'])}</span></td></tr>"
         )

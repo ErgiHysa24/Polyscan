@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "threat_agent": {"skill_level": 6, "motive": 9, "opportunity": 7, "size": 9},
+  "intrusion_detection": 8,
+  "business_impact": {"financial_damage": 3, "reputation_damage": 5, "non_compliance": 5, "privacy_violation": 7},
+  "overrides": [
+    {"rule": "*", "file": "rust/*", "factors": {"opportunity": 0}}
+  ]
+}
