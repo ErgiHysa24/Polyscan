@@ -173,3 +173,30 @@ jobs:
           echo "::notice title=epss-json::$(head -c 1500 epss.json)"
           curl -fsS -o kev.json https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json; echo "::notice title=kev-cisa-exit::$? size=$(stat -c%s kev.json 2>/dev/null)"
           curl -fsS -o /dev/null -w '%{http_code}' "https://api.first.org/data/v1/epss?cve=CVE-0000-0000"; echo
+  tls-sample:
+    # testssl.sh: image digest and REAL JSON output against a local TLS server with a self-signed certificate.
+    runs-on: ubuntu-latest
+    steps:
+      - name: testssl.sh
+        run: |
+          set +e
+          docker pull -q ghcr.io/testssl/testssl.sh:3.2 > /dev/null; echo "pull=$?"
+          echo "::notice title=testssl-digest::$(docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/testssl/testssl.sh:3.2) $(docker run --rm ghcr.io/testssl/testssl.sh:3.2 --version 2>&1 | grep -i -m1 'testssl' | tr -s ' ' | head -c 150)"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 2 -subj "/CN=localhost" 2>/dev/null
+          openssl s_server -accept 8443 -cert c.pem -key k.pem -www > /dev/null 2>&1 &
+          sleep 2
+          mkdir out && chmod 777 out
+          docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD/out:/out" ghcr.io/testssl/testssl.sh:3.2 \
+            --quiet --color 0 --protocols --server-defaults --std --fs --headers --jsonfile /out/t.json --severity LOW --connect-timeout 10 --openssl-timeout 10 \
+            https://host.docker.internal:8443 > log.txt 2>&1
+          echo "::notice title=testssl-exit::$? $(tail -c 300 log.txt | tr '\n' ' ')"
+          python3 - <<'PY'
+          import json
+          d = json.load(open("out/t.json"))
+          print("::notice title=testssl-shape::" + f"{type(d).__name__} {len(d)} entries; keys {sorted(d[0])}; severities {sorted({e['severity'] for e in d})}")
+          keep = [e for e in d if e["severity"] not in ("OK", "INFO", "DEBUG")]
+          print("::notice title=testssl-findings::" + json.dumps(keep, separators=(",", ":"))[:3800])
+          print("::notice title=testssl-first::" + json.dumps(d[:3], separators=(",", ":"))[:900])
+          PY
+          docker run --rm ghcr.io/testssl/testssl.sh:3.2 --quiet --color 0 --protocols --jsonfile /dev/stdout https://127.0.0.1:9 > dead.txt 2>&1
+          echo "::notice title=testssl-dead::exit=$? $(tail -c 500 dead.txt | tr '\n' ' ')"
