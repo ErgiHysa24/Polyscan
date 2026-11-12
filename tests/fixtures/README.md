@@ -20,3 +20,7 @@ written. Re-generate it with real output when you can:
 
 - `kev.json`: 3 real entries (CVE-2019-11043, CVE-2021-44228, CVE-2017-5638) cut from the CISA KEV catalog 2026.11.10 (downloaded from CISA's GitHub mirror); header fields kept, `count` changed to 3.
 - `epss.json`: real answer of `https://api.first.org/data/v1/epss?cve=CVE-2021-44228,CVE-2017-5638,CVE-2026-69246&limit=3`, printed by the CI (`intel-sample` job) on 2026-11-12.
+
+## TLS
+
+- `testssl.json`: real output of testssl.sh 3.2.5 (`--protocols --server-defaults --std --fs --headers --severity LOW`) against `openssl s_server` with a self-signed certificate, reached through `host.docker.internal`; printed complete by the CI (`tls-sample` job, 9 entries).

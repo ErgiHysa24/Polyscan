@@ -115,8 +115,9 @@ def test_the_zap_command_runs_the_pinned_image_without_mounting_the_project(tmp_
 def test_zap_has_no_local_mode():
     assert Zap().local_ok is False
     res = dast(classify_local(), "local")
-    (tool,) = res.tools
+    tool = res.tools[0]
     assert tool.status == UNAVAILABLE and "only in Docker" in tool.detail
+    assert all(t.status == UNAVAILABLE for t in res.tools)  # testssl.sh is Docker-only too
 
 
 def classify_local():

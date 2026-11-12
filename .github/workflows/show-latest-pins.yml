@@ -44,6 +44,7 @@ jobs:
           check bridgecrew/checkov:latest --version
           check ghcr.io/zaproxy/zaproxy:stable zap.sh -version
           check ghcr.io/aquasecurity/trivy:latest --version
+          check ghcr.io/testssl/testssl.sh:3.2 --version
   trivy-sample:
     # Prints a SHORT sample of real Trivy output (2 vulnerabilities), to be saved as a test fixture.
     runs-on: ubuntu-latest

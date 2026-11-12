@@ -297,5 +297,8 @@ def dast(
         if how is None:
             result.tools.append(ToolResult(tool.name, UNAVAILABLE, reason))
             continue
+        if tool.name == "testssl" and not target.url.lower().startswith("https://"):
+            result.tools.append(ToolResult(tool.name, SKIPPED, "the target is http: there is no TLS to check (use https in production)"))
+            continue
         result.tools.append(run_tool(tool, how, target.url, opts, timeout))
     return result

@@ -37,6 +37,7 @@ IMAGES = {
     "gitleaks": ("zricethezav/gitleaks", "8.30.1", "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"),
     "osv-scanner": ("ghcr.io/google/osv-scanner", "2.7.0", "sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0"),
     "zap": ("ghcr.io/zaproxy/zaproxy", "2.17.0", "sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6"),
+    "testssl": ("ghcr.io/testssl/testssl.sh", "3.2.5", "sha256:a0b0f35dea9e129804eae31e47d310d5c15423c9e495b5c2826ec0b5e4494cc7"),
     "trivy": ("ghcr.io/aquasecurity/trivy", "0.76.1", "sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"),
     "checkov": ("bridgecrew/checkov", "3.3.30", "sha256:4b65e89f1fde292249fc0aa0d0db43302c036dfe39f7370b2d3517571082b894"),
 }  # fmt: skip
@@ -382,6 +383,61 @@ def parse_dbaudit(text: str, root: str) -> list[Finding]:
                 cwe=cwe_field(f.get("cwe")))  # fmt: skip
         for f in data.get("findings") or []
     ]
+
+
+TESTSSL_SEVERITY = {"LOW": Severity.LOW, "MEDIUM": Severity.MEDIUM, "HIGH": Severity.HIGH, "CRITICAL": Severity.CRITICAL,
+                    "WARN": Severity.INFO}  # fmt: skip
+TESTSSL_TITLES = {
+    "cert_chain_of_trust": "The certificate is not trusted by browsers",
+    "cert_trust": "The certificate does not match the site's name",
+    "cert_subjectAltName": "The certificate has no Subject Alternative Name",
+    "cert_revocation": "The certificate cannot be checked for revocation",
+    "cert_expirationStatus": "Certificate expiry",
+    "HSTS": "No HSTS header (browsers are not told to always use HTTPS)",
+    "security_headers": "Security headers missing",
+    "cipherlist_OBSOLETED": "Obsolete ciphers are offered",
+    "DNS_CAArecord": "No DNS CAA record",
+    "SSLv2": "SSLv2 is offered", "SSLv3": "SSLv3 is offered", "TLS1": "TLS 1.0 is offered", "TLS1_1": "TLS 1.1 is offered",
+    "FS": "Forward secrecy",
+}  # fmt: skip
+# On a local test server these say "this is a development certificate", which is expected there.
+TESTSSL_LOCAL_CERT = {"cert_chain_of_trust", "cert_subjectAltName", "cert_revocation", "DNS_CAArecord"}
+TESTSSL_IGNORE = {"engine_problem", "scanTime"}
+
+
+def parse_testssl(text: str, root: str) -> list[Finding]:
+    """testssl.sh --jsonfile: a flat list of {id, ip, port, severity, finding, cwe?}.
+
+    A FATAL entry means the scan did not happen (no connection, not a TLS port): that is an error, not
+    an empty result. When polyscan reached a local site through the Docker host name, the "name does
+    not match" finding is an artefact of that and is dropped; the other development-certificate
+    findings are kept but lowered to LOW, with a note."""
+    data = _loads(text)
+    if not isinstance(data, list):
+        raise ValueError("this is not testssl.sh JSON output")
+    fatal = [str(e.get("finding", "")) for e in data if isinstance(e, dict) and e.get("severity") == "FATAL"]
+    if fatal:
+        raise ValueError("testssl.sh could not test the site: " + " ".join(fatal[0].split())[:200])
+    through_docker_host = any(str(e.get("ip", "")).startswith(HOST_FROM_CONTAINER) for e in data if isinstance(e, dict))
+    findings = []
+    for e in data:
+        if not isinstance(e, dict) or e.get("id") in TESTSSL_IGNORE or e.get("severity") not in TESTSSL_SEVERITY:
+            continue
+        rule, severity, note = str(e.get("id", "")), TESTSSL_SEVERITY[e["severity"]], ""
+        if through_docker_host:
+            if rule == "cert_trust":
+                continue
+            if rule in TESTSSL_LOCAL_CERT and severity > Severity.LOW:
+                severity, note = Severity.LOW, " (local test certificate: expected here, not acceptable in production)"
+        if e["severity"] == "WARN":
+            note = " (testssl.sh could not complete this test)"
+        detail = " ".join(str(e.get("finding", "")).split())
+        title = TESTSSL_TITLES.get(rule, rule.replace("_", " "))
+        findings.append(
+            Finding("testssl", severity, f"tls-{rule}", f"TLS: {title}" + (f": {detail}" if detail and detail != "--" else "") + note,
+                    root, 0, "runtime", cwe=cwe_field(e.get("cwe")))  # fmt: skip
+        )
+    return findings
 
 
 ZAP_RISK = {"0": Severity.INFO, "1": Severity.LOW, "2": Severity.MEDIUM, "3": Severity.HIGH}
@@ -1107,9 +1163,38 @@ class Zap(Tool):
         return zap_auth_properties(opts.auth_name, opts.auth_value) if opts.auth_value else None
 
 
+class TestSsl(Tool):
+    """testssl.sh on an https site: protocol versions, cipher families, forward secrecy, the certificate, HSTS.
+
+    Only the CONFIGURATION checks are run (--protocols --server-defaults --std --fs --headers): the
+    probes for specific vulnerabilities (Heartbleed, ROBOT...) are left out, in line with polyscan's
+    "no attacks" rule. Docker only. Exit codes up to 50 count ambiguous tests; 242 and above are failures."""
+
+    __test__ = False  # not a pytest class
+
+    def __init__(self):
+        super().__init__(
+            "testssl", "testssl.sh", image_ref("testssl"), parse_testssl,
+            ok_codes=tuple(range(0, 51)), uses_folder=False, local_ok=False, report_file="testssl.json", workdir="/out",
+        )  # fmt: skip
+
+    def local_cmd(self, target, opts):
+        raise NotImplementedError("testssl.sh runs only in Docker")
+
+    def docker_flags(self, opts):
+        return ["--add-host", f"{HOST_FROM_CONTAINER}:host-gateway"]
+
+    def docker_cmd(self, opts):
+        if not opts.target_url:
+            raise ValueError("no target URL")
+        return ["--quiet", "--color", "0", "--protocols", "--server-defaults", "--std", "--fs", "--headers",
+                "--severity", "LOW", "--connect-timeout", "10", "--openssl-timeout", "10",
+                "--jsonfile", f"{self.workdir}/{self.report_file}", opts.target_url]  # fmt: skip
+
+
 def site_tools() -> list[Tool]:
     """Tools that scan a running site (used by `polyscan dast`)."""
-    return [Zap()]
+    return [Zap(), TestSsl()]
 
 
 def all_tools() -> list[Tool]:

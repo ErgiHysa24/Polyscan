@@ -67,6 +67,7 @@ CHECKS = {
     "trivy": ("Container images", "Known vulnerabilities (HIGH, CRITICAL) in the Docker images named in the project"),
     "checkov": ("Configuration (IaC)", "Dockerfile, docker-compose, Kubernetes and Terraform misconfigurations"),
     "zap": ("Running application (DAST)", "Passive scan of the live site: headers, cookies, information leaks, forms (no attacks sent)"),
+    "testssl": ("Running application (TLS)", "HTTPS configuration: protocol versions, ciphers, forward secrecy, certificate, HSTS (configuration checks only)"),
     "ss": ("Host network", "Listening TCP/UDP ports of this machine and who can reach them"),
 }
 NOT_TESTED = [

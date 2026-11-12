@@ -206,6 +206,24 @@ jobs:
           curl -fsI http://127.0.0.1:8000/ | head -1
       - name: Scan the running site
         run: polyscan dast http://localhost:8000 --json zap-report.json --fail-on none
+      - name: TLS check on a local https server (self-signed certificate)
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout k.pem -out c.pem -days 2 -subj "/CN=localhost" 2>/dev/null
+          openssl s_server -accept 8443 -cert c.pem -key k.pem -www > /dev/null 2>&1 &
+          sleep 2
+          set +e
+          polyscan dast https://localhost:8443 --json tls-report.json --fail-on none > tls.log 2>&1
+          echo "exit=$?"
+          set -e
+          python - <<'EOF5'
+          import json, sys
+          d = json.load(open("tls-report.json"))
+          tools = {t["name"]: (t["status"], t["findings"], t["detail"][:200]) for t in d["tools"]}
+          rules = sorted(f["rule"] for f in d["findings"] if f["tool"] == "testssl")
+          print("::notice title=tls::" + str(tools) + " rules=" + str(rules))
+          if tools["testssl"][0] != "ok" or "tls-cert_chain_of_trust" not in rules or "tls-cert_trust" in rules:
+              sys.exit(1)
+          EOF5
       - name: ZAP ran and found the planted weaknesses
         run: |
           python - <<'EOF2'
