@@ -157,6 +157,11 @@ def build_parser() -> argparse.ArgumentParser:
     sb = sub.add_parser("sbom", help="write the list of all dependencies (SBOM) in CycloneDX format, with Trivy in Docker")
     sb.add_argument("path", nargs="?", default=".")
     sb.add_argument("--output", metavar="FILE", required=True, help="where to write the CycloneDX JSON")
+    hi = sub.add_parser("history", help="how the findings changed over several scans of the same project")
+    hi.add_argument("reports", nargs="+", help="JSON reports of the same project, in any order")
+    hi.add_argument("--json", metavar="FILE")
+    hi.add_argument("--markdown", metavar="FILE")
+    hi.add_argument("--html", metavar="FILE")
     df = sub.add_parser("diff", help="retest: compare two JSON reports (before / after the fixes): fixed, still open, new")
     df.add_argument("before", help="JSON report of the first scan")
     df.add_argument("after", help="JSON report of the scan after the fixes")
@@ -349,6 +354,23 @@ def cmd_report(args) -> int:
     return EXIT_GAPS if "error" in statuses or (intel and intel.problems) else EXIT_OK
 
 
+def cmd_history(args) -> int:
+    from . import history
+
+    try:
+        sources = [load_report(path) for path in args.reports]
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    points = history.build(sources)
+    print(history.to_terminal(points))
+    for path, write, label in ((args.json, history.to_json, "JSON"), (args.markdown, history.to_markdown, "Markdown"), (args.html, history.to_html, "HTML")):
+        if path:
+            Path(path).write_text(write(points), encoding="utf-8")
+            print(f"{label} report: {path}")
+    return EXIT_GAPS if points and points[-1].gaps else EXIT_OK  # the latest scan is incomplete
+
+
 def cmd_sbom(args) -> int:
     from . import sbom
 
@@ -396,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_diff(args)
     if args.command == "sbom":
         return cmd_sbom(args)
+    if args.command == "history":
+        return cmd_history(args)
     if args.command == "report":
         return cmd_report(args)
     if args.command == "ports":

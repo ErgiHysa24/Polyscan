@@ -279,6 +279,7 @@ class Source:
     findings: list[Finding] = field(default_factory=list)
     tools: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    generated: str = ""  # when the report was written (UTC, ISO 8601); empty for reports older than this field
 
     @property
     def gaps(self) -> list[str]:
@@ -319,7 +320,10 @@ def load_report(path: str) -> Source:
             raise ValueError(f"{path}: finding number {i + 1} is malformed") from None
     tools = [t for t in data.get("tools") or [] if isinstance(t, dict)]
     notes = [str(n) for n in data.get("notes") or []]
-    return Source(path, str(data.get("root", "")), str(data.get("kind", "folder")), findings, tools, notes)
+    generated = str(data.get("generated", ""))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", generated):
+        generated = ""
+    return Source(path, str(data.get("root", "")), str(data.get("kind", "folder")), findings, tools, notes, generated)
 
 
 def merge(sources: list[Source]) -> list[Finding]:

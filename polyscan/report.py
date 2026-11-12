@@ -33,6 +33,7 @@ def to_json(result: ScanResult) -> str:
     c = counts(result)
     data = {
         "polyscan": __version__,
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),  # used by `polyscan history`
         "root": result.root,
         "kind": result.kind,
         "notes": result.notes,
