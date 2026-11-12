@@ -239,3 +239,16 @@ def test_cli_bad_input_is_exit_2_with_a_message(tmp_path, capsys):
     code, cap = run(tmp_path, capsys, "not a report")
     assert code == 2 and "error:" in cap.err
     assert cli.main(["risk", str(tmp_path / "missing.json")]) == 2
+
+
+def test_image_vulnerabilities_are_one_risk_per_image():
+    def img(ref, cve, sev):
+        return Finding("trivy", sev, cve, f"{ref}: libssl 1.1: something. Fixed in: 1.2.", "Dockerfile", 2, "dependency")
+
+    findings = [img("python:3.9.0-slim", f"CVE-2021-{n:04d}", S.CRITICAL if n < 3 else S.HIGH) for n in range(1, 41)]
+    findings += [img("mysql:latest", "CVE-2022-0001", S.HIGH), f(rule="sqli", message="SQL injection")]
+    risks = assess(findings, Context())
+    assert len(risks) == 3
+    py = [r for r in risks if r.rule == "image python:3.9.0-slim"][0]
+    assert py.count == 40 and "40 known vulnerabilities" in py.title and "(2 critical, 38 high)" in py.title
+    assert "base image" in py.mitigation and len(py.threat.cve) == 40 and any("Grouped" in x for x in py.reasons)

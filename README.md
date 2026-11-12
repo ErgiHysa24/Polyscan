@@ -75,6 +75,25 @@ Richiede Docker acceso (ZAP gira solo lì). Come funziona e cosa sapere:
 
 > Un workflow completo pronto da copiare (codice + sito + registro dei rischi, con `docker compose` e un database usa-e-getta) è in [`examples/github-workflow/`](examples/github-workflow/).
 
+### Login con il form del sito
+
+Per i siti con login a sessione (form con utente e password, cookie di sessione):
+
+```bash
+export SHOP_PASSWORD='...'            # la password non va mai sulla riga di comando
+polyscan dast http://localhost:5000 --login-url http://localhost:5000/login --login-user alice \
+    --login-password-env SHOP_PASSWORD --login-check-url http://localhost:5000/account
+```
+
+- `--login-check-url` è obbligatorio: è una pagina che solo un utente collegato può aprire. **Prima** della scansione polyscan prova il login da sé, senza seguire i reindirizzamenti: la pagina non deve rispondere 200 da anonimi e deve rispondere 200 dopo il login. Se il login non funziona il controllo è **fallito** (codice 3), mai una scansione anonima fatta passare per autenticata. Provato davvero: con la password sbagliata ZAP, da solo, rispondeva "ok, 0 problemi", perché la pagina protetta reindirizzava al login, che risponde 200.
+- La password arriva a ZAP dallo standard input dentro il piano di scansione (un file che esiste solo nel container); non compare nei comandi, nei rapporti né nell'output. Login e pagina di controllo devono stare sullo stesso sito del bersaglio; fuori dalla rete locale serve https.
+- La scansione resta **passiva** (nessun job di attacco nel piano) e non segue i link di logout.
+- I nomi dei campi si cambiano con `--login-user-field` e `--login-password-field`. **Limite:** un form con token anti-CSRF monouso, un login a più passaggi o con JavaScript (SPA, OAuth) non si possono automatizzare così; in quei casi usa `--auth-header-env` con il cookie di sessione preso dal browser. **Le API descritte da OpenAPI non sono importate**: l'importazione di ZAP invia richieste a tutti gli endpoint, compresi POST e DELETE, e potrebbe modificare i dati.
+
+### Controllo TLS
+
+Su un bersaglio `https://` `polyscan dast` lancia anche [testssl.sh](https://testssl.sh) (immagine fissata): versioni del protocollo, famiglie di cifrari, forward secrecy, certificato, HSTS. Solo i controlli di **configurazione**: le sonde per vulnerabilità specifiche (Heartbleed, ROBOT...) sono lasciate fuori, coerentemente con la regola "nessun attacco". Su `http://` il controllo è saltato con il motivo. Quando il sito è locale e viene raggiunto dal container con un altro nome, l'avviso "il certificato non corrisponde al nome" è un artefatto e viene scartato; gli altri avvisi tipici di un certificato di sviluppo (autofirmato, senza revoca) restano ma scendono a *bassa*, con una nota. Se testssl.sh non riesce a collegarsi il controllo è fallito, non vuoto.
+
 ## Valutazione del rischio (`polyscan risk`)
 
 Uno scanner dice "questa riga è pericolosa". Una valutazione del rischio risponde a un'altra domanda: **quanto conta per questa applicazione, e cosa faccio per primo?** `polyscan risk` legge uno o più rapporti JSON (di `scan` e `dast`) e produce un registro dei rischi con matrice 5×5, priorità, cosa fare e entro quando.
@@ -100,6 +119,8 @@ Cose da sapere:
 - `--fail-on {low,medium,high,critical}` fa uscire con 1 se c'è un rischio di quel livello o più alto, per bloccare una pipeline.
 - Nell'action: `risk-assessment: "true"` (più `risk-exposure` e `risk-data`) scrive `polyscan-risk-report.html/.json` e il riepilogo nella pagina del job.
 - Il testo dei rapporti letti è trattato come non fidato (HTML con escape e CSP, ANSI tolti, Markdown neutralizzato), e un file che non è un rapporto polyscan viene rifiutato.
+
+Le vulnerabilità delle **immagini Docker** sono raggruppate in **un rischio per immagine** ("python:3.9.0-slim: 406 vulnerabilità note, 12 critiche"): la risposta è una sola azione, aggiornare l'immagine di base, e centinaia di righe separate nasconderebbero tutto il resto. L'elenco completo resta nel rapporto della scansione; se una delle CVE è in KEV il rischio dell'immagine sale comunque a probabilità 5.
 
 ### Minacce collegate: CVE, CWE, OWASP, STRIDE, MITRE ATT&CK
 
@@ -204,6 +225,26 @@ polyscan report scan.json dast.json ports.json --html assessment.html \
 ```
 
 Il metodo seguito e il confronto con strumenti simili (DefectDojo, SecObserve, Threat Dragon, Greenbone...) sono in [`docs/METODOLOGIA.md`](docs/METODOLOGIA.md) e [`docs/CONFRONTO.md`](docs/CONFRONTO.md).
+
+## SBOM (`polyscan sbom`)
+
+```bash
+polyscan sbom . --output sbom.cdx.json
+```
+
+Scrive l'inventario di tutte le librerie del progetto in formato **CycloneDX** (standard OWASP), quello che leggono Dependency-Track, DefectDojo e GitHub: serve a rispondere "questa libreria è dentro la mia applicazione?" ogni volta che esce una nuova vulnerabilità. Lo genera Trivy (immagine già fissata) con la cartella montata in sola lettura e **senza rete**. Un documento non valido o senza librerie è un errore, non un file vuoto. Serve Docker.
+
+## Storia delle scansioni (`polyscan history`)
+
+```bash
+polyscan history rapporti/*.json --html storia.html
+```
+
+Mette in ordine di tempo più rapporti dello stesso progetto (ogni rapporto JSON porta ora il campo `generated`; per quelli vecchi si usa la data del file, e la tabella lo segnala) e mostra per ogni scansione: segnalazioni per gravità, quante sono **nuove** e quante **risolte** rispetto alla precedente, e quanti controlli non hanno girato. Una scansione incompleta è marcata: un calo su quella riga può voler dire solo che si è controllato di meno. Non c'è un database: la storia sono i file JSON che conservi (per esempio gli artifact della CI).
+
+## Applicazione di prova (`examples/shop-app`)
+
+Una piccola applicazione web **volutamente insicura** (Flask + PostgreSQL in Docker Compose, con login a sessione vero) su cui provare l'intera catena: vedi [`examples/shop-app/README.md`](examples/shop-app/README.md). Il job `shop-app` della CI la avvia e verifica che: gli strumenti trovino le debolezze piantate (SQL injection, MD5, debug, password di default del database, porta 5432 pubblicata, immagine vecchia), la scansione con login veda la pagina protetta e quella anonima no, una password sbagliata dia errore, la password non compaia in nessun file prodotto.
 
 ## Porte in ascolto (`polyscan ports`)
 

@@ -217,6 +217,17 @@ def score_group(kind: str, severity: Severity, ctx: Context) -> tuple[int, int, 
     return likelihood, clamp(impact), reasons
 
 
+IMAGE_RULE = "image "
+
+
+def image_rule(f: Finding) -> str:
+    """Container-image vulnerabilities are grouped per image: 400 CVEs of one old base image are one risk
+    (the fix is one action, updating the image), not 400 rows that bury everything else."""
+    if f.tool == "trivy" and f.category == "dependency" and ": " in f.message:
+        return IMAGE_RULE + f.message.split(": ", 1)[0]
+    return ""
+
+
 def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | None = None, intel: Intel | None = None,
            factors: Factors | None = None) -> list[Risk]:  # fmt: skip
     """One risk per kind of problem (category + rule), listing every place it occurs.
@@ -228,7 +239,7 @@ def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | Non
     groups: dict[tuple, list[Finding]] = {}
     chosen: dict[tuple, Decision | None] = {}
     for f, d in kept:
-        key = (f.category, f.rule or f.message[:60], d.index if d else 0)
+        key = (f.category, image_rule(f) or f.rule or f.message[:60], d.index if d else 0)
         groups.setdefault(key, []).append(f)
         chosen[key] = d
     risks = []
@@ -242,15 +253,24 @@ def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | Non
                 places.append(place)
         likelihood, impact, reasons = score_group(kind, severity, ctx)
         threat = threat_for(items, kind)
+        title = " ".join(lead.message.split())[:160] or rule
+        advice = mitigation_for(kind, rule, lead.message)
+        if rule.startswith(IMAGE_RULE):
+            by = {s: sum(f.severity == s for f in items) for s in (Severity.CRITICAL, Severity.HIGH)}
+            title = (f"{rule[len(IMAGE_RULE):]}: {len(items)} known vulnerabilities in the image "
+                     f"({by[Severity.CRITICAL]} critical, {by[Severity.HIGH]} high)")  # fmt: skip
+            advice = ("Move to a current, supported tag of the base image (pinned by digest), rebuild and scan again: "
+                      "one update usually removes most of these at once. The full list is in the scan report.")  # fmt: skip
+            reasons.append(f"Grouped: {len(items)} findings of this image are one risk, because the response is one action.")
         likelihood, why_intel, found = adjust(threat.cve, likelihood, intel)
         reasons += why_intel
         risks.append(
             Risk(
-                id="", title=" ".join(lead.message.split())[:160] or rule, kind=kind,
+                id="", title=title, kind=kind,
                 tools=sorted({f.tool for f in items}), rule=rule, severity=severity,
                 where=places[:5] + ([f"... and {len(places) - 5} more"] if len(places) > 5 else []),
                 count=len(items), likelihood=likelihood, impact=impact, reasons=reasons,
-                mitigation=mitigation_for(kind, rule, lead.message), threat=threat, intel=found,
+                mitigation=advice, threat=threat, intel=found,
                 treatment=chosen[(kind, rule, n)], today=plan.today if plan else None,
                 owasp=rate(kind, severity, threat.stride, found, rule, [f.file for f in items], ctx.exposure, ctx.data, factors),
             )

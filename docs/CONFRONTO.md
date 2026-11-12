@@ -22,12 +22,12 @@ Confronto onesto con gli strumenti open source che fanno parti dello stesso lavo
 
 ## Cosa manca ancora rispetto a loro (roadmap)
 
-1. **Storia e metriche nel tempo**: DefectDojo e SecObserve tengono tutte le scansioni in un database; polyscan confronta solo due rapporti per volta.
-2. **SBOM** (CycloneDX/SPDX) da passare a Dependency-Track.
-3. **Controllo TLS** del sito (versioni del protocollo, certificati, cifrari).
-4. **Login con form e API** (OpenAPI) per la parte dinamica.
-5. **OWASP Risk Rating Methodology** come metodo di punteggio alternativo, con i 16 fattori (agente di minaccia, vulnerabilità, impatto tecnico e di business).
-6. **Audit della configurazione del database** (PostgreSQL/MySQL: utenti, privilegi, cifratura delle connessioni).
+Fatto dopo la prima stesura: OWASP Risk Rating come seconda valutazione, audit della configurazione dei database, SBOM CycloneDX, controllo TLS, storia delle scansioni, login con form, applicazione di prova con database, CVE delle immagini Docker raggruppate in un rischio per immagine.
+
+1. **Database delle scansioni e interfaccia web multiutente**: DefectDojo e SecObserve li hanno; polyscan lavora su file JSON (li si può importare in DefectDojo con SARIF).
+2. **API (OpenAPI) e applicazioni a pagina singola**: non coperte dalla scansione dinamica; l'importazione OpenAPI di ZAP invia anche POST e DELETE, quindi è stata lasciata fuori.
+3. **Login con token anti-CSRF, a più passaggi o OAuth**: serve il cookie di sessione passato a mano.
+4. **Configurazione effettiva del database in esecuzione** (utenti, privilegi, ruoli): si controllano solo i file.
 
 ## Fonti
 

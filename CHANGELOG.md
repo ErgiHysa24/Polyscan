@@ -6,6 +6,11 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Login con form** per `polyscan dast` (`--login-url`, `--login-user`, `--login-password-env`, `--login-check-url`): il login è provato prima della scansione senza seguire i reindirizzamenti; se non funziona il controllo fallisce. Scansione sempre passiva, mai sul link di logout.
+- **Controllo TLS** con testssl.sh (solo configurazione) sui bersagli https.
+- **SBOM CycloneDX** (`polyscan sbom`) con Trivy, in sola lettura e senza rete.
+- **Storia delle scansioni** (`polyscan history`); i rapporti JSON hanno ora il campo `generated`.
+- **`examples/shop-app`**: applicazione di prova con database in Docker, e job CI che esegue tutta la catena.
 - **Audit della configurazione dei database** (`db-config`, sempre disponibile): PostgreSQL, MySQL/MariaDB, MongoDB e Redis in compose, `.env` e file di configurazione; le password non vengono mai stampate.
 - **OWASP Risk Rating Methodology** come seconda valutazione di ogni rischio (16 fattori, ognuno con il motivo; `--factors` per i fattori dell'organizzazione e le correzioni). Il rapporto di assessment incrocia i due metodi.
 - **Rapporto di assessment** (`polyscan report`): un documento stampabile con ambito e autorizzazione, sintesi, copertura dei controlli, matrice e registro, trattamento, ATT&CK per tattica, retest e appendice.
@@ -17,6 +22,7 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 - Action: input `risk-decisions` e `risk-intel`; scrive sempre `polyscan-report.sarif` e `polyscan-risk-decisions-todo.json`.
 
 ### Cambiato
+- Registro dei rischi: le vulnerabilità di un'immagine Docker sono un solo rischio per immagine invece di una riga per CVE.
 - CI: Python 3.9 (versione minima) è provato su `ubuntu-24.04`, perché `ubuntu-latest` è passato a Ubuntu 26.04, che non lo ha più.
 - **Minacce collegate nel registro dei rischi**: per ogni rischio CVE/GHSA, CWE, categoria OWASP Top 10 (2021), minacce STRIDE e **tecniche MITRE ATT&CK** (`polyscan/threats.py`). La CWE viene dagli strumenti (Bandit, ZAP, SpotBugs, Progpilot, Semgrep); i collegamenti a OWASP, STRIDE e ATT&CK sono una tabella scritta a mano e dichiarata come giudizio di polyscan. Dove non c'è una CWE il collegamento viene dal tipo di problema ed è marcato "(by kind)". Nuovo campo `cwe` in ogni segnalazione dei rapporti JSON.
 - **Java**: [SpotBugs](https://spotbugs.github.io) con il plugin Find Security Bugs, sulle classi compilate; solo la categoria sicurezza. Senza classi compilate il controllo è saltato con il motivo, e se il plugin non si carica fallisce.

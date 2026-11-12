@@ -50,6 +50,24 @@ inputs:
       Value of that header, for example "Bearer <token>". Pass it from a repository secret (the "secrets" context of your workflow), never as plain text.
       Use a TEST account with the least privileges, never a real administrator.
     default: ""
+  login-url:
+    description: Log in through the site's own form - the URL the form posts to (same site as target-url). Empty = no form login.
+    default: ""
+  login-user:
+    description: User name for the form login. Use a TEST account with the least privileges.
+    default: ""
+  login-password:
+    description: Password for the form login. Pass it from a repository secret, never as plain text.
+    default: ""
+  login-check-url:
+    description: A page only a logged-in user can open (answers 200). The scan is refused if the login does not work.
+    default: ""
+  login-user-field:
+    description: Name of the form's user field.
+    default: username
+  login-password-field:
+    description: Name of the form's password field.
+    default: password
   allow-remote:
     description: >-
       "true" to scan a target that is NOT on the runner or a private network. Say true only if you own it or have
@@ -270,6 +288,12 @@ runs:
         INPUT_ALLOW_REMOTE: ${{ inputs.allow-remote }}
         INPUT_AUTH_NAME: ${{ inputs.auth-header-name }}
         INPUT_AUTH_VALUE: ${{ inputs.auth-header-value }}
+        INPUT_LOGIN_URL: ${{ inputs.login-url }}
+        INPUT_LOGIN_USER: ${{ inputs.login-user }}
+        INPUT_LOGIN_PASSWORD: ${{ inputs.login-password }}
+        INPUT_LOGIN_CHECK_URL: ${{ inputs.login-check-url }}
+        INPUT_LOGIN_USER_FIELD: ${{ inputs.login-user-field }}
+        INPUT_LOGIN_PASSWORD_FIELD: ${{ inputs.login-password-field }}
         REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
       run: |
         args=(dast "$INPUT_TARGET" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON" --minutes "$INPUT_ZAP_MINUTES"
@@ -280,6 +304,12 @@ runs:
         [ "$INPUT_ALLOW_REMOTE" = "true" ] && args+=(--allow-remote)
         # The VALUE is read from the environment variable by polyscan itself; it is never put on a command line.
         [ -n "$INPUT_AUTH_VALUE" ] && args+=(--auth-header-env INPUT_AUTH_VALUE --auth-header-name "$INPUT_AUTH_NAME")
+        # Same for the form login: polyscan reads the password from the variable named here.
+        if [ -n "$INPUT_LOGIN_URL" ]; then
+          args+=(--login-url="$INPUT_LOGIN_URL" --login-user="$INPUT_LOGIN_USER" --login-password-env INPUT_LOGIN_PASSWORD
+                 --login-check-url="$INPUT_LOGIN_CHECK_URL" --login-user-field="$INPUT_LOGIN_USER_FIELD"
+                 --login-password-field="$INPUT_LOGIN_PASSWORD_FIELD")
+        fi
         set +e
         polyscan "${args[@]}"
         code=$?
