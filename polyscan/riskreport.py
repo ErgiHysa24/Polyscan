@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from . import __version__
-from .report import CSS, _clean, _e, _md
+from .report import CSS, _clean, _e, _md, bars
 from .intel import Intel
 from .treatment import Plan
 from .risk import (
@@ -252,13 +252,13 @@ def to_markdown(ctx: Context, risks: list[Risk], sources: list[Source], plan: Pl
 
 RISK_CSS = """
 .lvl-critical{color:var(--critical)}.lvl-high{color:var(--high)}.lvl-medium{color:var(--medium)}.lvl-low{color:var(--low)}
-.matrix{table-layout:fixed}.matrix td{height:34px}.matrix td,.matrix th{text-align:center;padding:6px}td b{white-space:nowrap}.matrix th{font-size:11px}
-.m-low{background:rgba(21,101,160,.18)}.m-medium{background:rgba(178,106,0,.25)}
-.m-high{background:rgba(198,40,40,.28)}.m-critical{background:rgba(139,29,44,.45)}
+.matrix{table-layout:fixed}.matrix td{height:34px;font:700 14px var(--mono);border:1px solid var(--bg)}.matrix td,.matrix th{text-align:center;padding:6px}td b{white-space:nowrap}.matrix th{font-size:11px}
+.m-low{background:rgba(43,98,168,.16)}.m-medium{background:rgba(154,107,0,.24)}
+.m-high{background:rgba(200,80,30,.30)}.m-critical{background:rgba(163,18,42,.42)}
 .mini td{padding:2px 6px;font-size:12px}.reasons{margin:4px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
 details{margin:8px 0}summary{cursor:pointer;color:var(--muted)}
-.kev{font-size:12px;padding:1px 6px;border-radius:4px;background:var(--critical);color:#fff}
-.st{font-size:12px;padding:1px 6px;border-radius:4px;background:rgba(127,127,127,.15)}.st-acceptance-expired,.st-overdue{color:var(--high);font-weight:600}.st-accepted,.st-done{color:var(--low)}
+.kev{font:700 11.5px var(--mono);padding:1px 6px;white-space:nowrap;background:var(--critical);color:#fff}
+.st{font:12px var(--mono);padding:1px 6px;border:1px dashed var(--line)}.st-acceptance-expired,.st-overdue{color:var(--high);font-weight:600}.st-accepted,.st-done{color:var(--low)}
 """
 
 
@@ -303,7 +303,7 @@ def _threat_html(r: Risk) -> str:
 def to_html(ctx: Context, risks: list[Risk], sources: list[Source], plan: Plan | None = None, intel: Intel | None = None) -> str:
     c = counts(risks)
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    cards = "".join(f'<div class="card"><b class="lvl-{n}">{c.get(n, 0)}</b><span>{n}</span></div>' for n in ORDER)
+    cards = bars([(n, c.get(n, 0), n) for n in ORDER])
     warn = ""
     gaps = gaps_of(sources) + intel_gaps(intel)
     if gaps:
@@ -341,9 +341,10 @@ def to_html(ctx: Context, risks: list[Risk], sources: list[Source], plan: Plan |
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>polyscan risk assessment</title><style>{CSS}{RISK_CSS}</style></head>
 <body><main>
+<p class="prompt">polyscan risk --exposure {_e(ctx.exposure)} --data {_e(ctx.data)}</p>
 <h1>Risk assessment</h1>
 <p class="sub">{_e(when)} &middot; polyscan {_e(__version__)}<br>Exposure: {_e(ctx.exposure)} ({_e(EXPOSURES[ctx.exposure][1])})<br>Data: {_e(ctx.data)} ({_e(DATA[ctx.data][1])})<br>From: {sources_html}{('<br>Threat intelligence: ' + _e('; '.join(intel.sources))) if intel and intel.sources else ''}</p>
-<div class="cards">{cards}</div>{warn}
+{cards}{warn}
 <h2>Risk matrix</h2>{_matrix_html(risks)}
 <h2>Risk register</h2>{table}{treat}
 <h2>How the score is computed</h2><ul>{method}</ul>

@@ -22,6 +22,9 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 - Action: input `risk-decisions` e `risk-intel`; scrive sempre `polyscan-report.sarif` e `polyscan-risk-decisions-todo.json`.
 
 ### Cambiato
+- **Nuova grafica dei rapporti HTML** in stile terminale: riga di comando in testata, titoli con `##`, grafico a barre fatto di caratteri al posto delle schede, stati `[ ok ]` / `[FAIL]`, caratteri monospazio per dati e tabelle. Stampa bene in PDF, tema chiaro e scuro.
+- `examples/shop-app`: stessa grafica, e **login a due passaggi con app di autenticazione** (TOTP, RFC 6238) per l'utente `bob`.
+- README: la sezione dei limiti si apre con una spiegazione in parole semplici.
 - Registro dei rischi: le vulnerabilità di un'immagine Docker sono un solo rischio per immagine invece di una riga per CVE.
 - CI: Python 3.9 (versione minima) è provato su `ubuntu-24.04`, perché `ubuntu-latest` è passato a Ubuntu 26.04, che non lo ha più.
 - **Minacce collegate nel registro dei rischi**: per ogni rischio CVE/GHSA, CWE, categoria OWASP Top 10 (2021), minacce STRIDE e **tecniche MITRE ATT&CK** (`polyscan/threats.py`). La CWE viene dagli strumenti (Bandit, ZAP, SpotBugs, Progpilot, Semgrep); i collegamenti a OWASP, STRIDE e ATT&CK sono una tabella scritta a mano e dichiarata come giudizio di polyscan. Dove non c'è una CWE il collegamento viene dal tipo di problema ed è marcato "(by kind)". Nuovo campo `cwe` in ogni segnalazione dei rapporti JSON.

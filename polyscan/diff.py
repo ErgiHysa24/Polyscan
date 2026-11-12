@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 from . import __version__
 from .models import OK, Finding, Severity
-from .report import CSS, _clean, _e, _md
+from .report import CSS, _clean, _e, _md, bars
 from .risk import Source
 
 GROUPS = ("fixed", "not_verified", "still_open", "new")
@@ -146,7 +146,7 @@ def to_html(d: Diff) -> str:
     c = d.counts()
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     colors = {"fixed": "low", "not_verified": "medium", "still_open": "high", "new": "critical"}
-    cards = "".join(f'<div class="card"><b class="{colors[g]}">{c[g]}</b><span>{_e(LABEL[g])}</span></div>' for g in GROUPS)
+    cards = bars([(LABEL[g], c[g], colors[g]) for g in GROUPS])
     warn = ""
     if d.after_gaps():
         warn = '<div class="warn">Some checks did not run in the second report, so what they found before is <b>not verified</b>, not fixed:<ul>' + "".join(f"<li>{_e(g)}</li>" for g in d.after_gaps()) + "</ul></div>"
@@ -167,9 +167,10 @@ def to_html(d: Diff) -> str:
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>polyscan retest</title><style>{CSS}</style></head>
 <body><main>
+<p class="prompt">polyscan diff</p>
 <h1>Retest</h1>
 <p class="sub">{_e(when)} &middot; polyscan {_e(__version__)}<br>Before: {_e(d.before.path)}<br>After: {_e(d.after.path)}</p>
-<div class="cards">{cards}</div>{warn}
+{cards}{warn}
 {''.join(sections) or '<p class="muted">Both reports are empty.</p>'}
 <p class="muted">Findings are matched by tool, rule and file (not by line). A finding that disappeared is counted as fixed only if its tool ran correctly the second time.</p>
 </main></body></html>

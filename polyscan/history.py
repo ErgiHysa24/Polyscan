@@ -130,6 +130,7 @@ def to_html(points: list[Point]) -> str:
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>polyscan history</title><style>{CSS}.bad{{color:var(--bad);font-weight:600}}</style></head>
 <body><main>
+<p class="prompt">polyscan history</p>
 <h1>Scan history</h1><p class="sub">{len(points)} scans &middot; polyscan {_e(__version__)}</p>
 {_chart(points)}
 <div class="wrap"><table class="f"><tr><th>When (UTC)</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th><th>Change since the scan before</th><th>Checks not run</th><th>Report</th></tr>{rows}</table></div>

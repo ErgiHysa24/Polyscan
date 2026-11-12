@@ -446,6 +446,37 @@ jobs:
           docker compose up -d --build 2>&1 | tail -3
           for i in $(seq 1 60); do curl -fs http://127.0.0.1:5000/healthz > /dev/null && break; sleep 2; done
           echo "::notice title=shop-up::health=$(curl -s http://127.0.0.1:5000/healthz) products=$(curl -s http://127.0.0.1:5000/api/products | head -c 120) account-anonymous=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/account)"
+      - name: Two-step login with an authenticator app code (user bob)
+        run: |
+          python - <<'EOF7'
+          import http.cookiejar, sys, urllib.error, urllib.parse, urllib.request
+          sys.path.insert(0, "examples/shop-app")
+          import totp
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *a, **k): return None
+          def client():
+              return urllib.request.build_opener(NoRedirect(), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          def go(c, path, **form):
+              data = urllib.parse.urlencode(form).encode() if form else None
+              try: return c.open("http://127.0.0.1:5000" + path, data, timeout=20).status
+              except urllib.error.HTTPError as e: return e.code
+          secret = "JBSWY3DPEHPK3PXP"
+          c = client()
+          steps = {"password": go(c, "/login", username="bob", password="bob-demo-pw"), "account-with-password-only": go(c, "/account"),
+                   "wrong-code": go(c, "/login/code", code="000000")}
+          code = totp.code_at(secret, totp.counter_now())
+          steps["right-code"] = go(c, "/login/code", code=code)
+          steps["account-after-code"] = go(c, "/account")
+          c2 = client()
+          go(c2, "/login", username="bob", password="bob-demo-pw")
+          steps["same-code-again"] = go(c2, "/login/code", code=code)
+          steps["page-2fa"] = go(c, "/account/2fa")
+          print("::notice title=shop-2fa::" + str(steps))
+          expected = {"password": 302, "account-with-password-only": 302, "wrong-code": 401, "right-code": 302,
+                      "account-after-code": 200, "same-code-again": 401, "page-2fa": 200}
+          sys.exit(0 if steps == expected else f"expected {expected}")
+          EOF7
       - name: Scan (code, dependencies, images, configuration, database)
         run: |
           set +e

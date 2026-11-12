@@ -29,7 +29,7 @@ from .diff import GROUPS as DIFF_GROUPS
 from .diff import LABEL as DIFF_LABEL
 from .diff import Diff
 from .intel import Intel
-from .report import CSS, _e
+from .report import CSS, _e, bars
 from .risk import DATA, EXPOSURES, LEVEL_UPPER, LEVELS, TARGETS, Context, Risk, Source
 from .riskreport import (
     RISK_CSS,
@@ -72,7 +72,8 @@ CHECKS = {
 }
 NOT_TESTED = [
     "No active attacks were sent (no exploitation, no fuzzing, no brute force): the live-site check is passive.",
-    "Login forms are not filled in; only pages reachable with the given token or cookie were seen.",
+    "Behind a login, only the pages reachable with the given account were seen (simple form, token or cookie); "
+    "logins with one-time tokens, several steps or a second factor are not automated.",
     "Business logic, authorization between users and race conditions need a manual test.",
     "The firewall in front of the host is not seen: an open port may still be filtered from outside.",
 ]
@@ -155,9 +156,9 @@ def executive_summary(risks: list[Risk], sources: list[Source], plan: Plan | Non
 
 
 REPORT_CSS = """
-.cover{border-bottom:3px solid var(--text);padding:8px 0 18px;margin-bottom:22px}
-.cover h1{font-size:28px}.kv{display:grid;grid-template-columns:180px 1fr;gap:4px 14px;margin:12px 0}
-.kv b{color:var(--muted);font-weight:600}.exec li{margin:4px 0}.toc{columns:2;font-size:14px}
+.cover{border-bottom:3px double var(--text);padding:8px 0 16px;margin-bottom:22px}
+.cover h1{font-size:30px}.kv{display:grid;grid-template-columns:180px 1fr;gap:4px 14px;margin:12px 0}
+.kv{font:13.5px/1.6 var(--mono)}.kv b{color:var(--muted);font-weight:400}.kv b::after{content:":"}.exec li{margin:4px 0}.toc{columns:2;font-size:14px}
 .ok{color:var(--low)}.bad{color:var(--bad);font-weight:600}
 @media print{body{background:#fff}main{max-width:none}.card,table{break-inside:avoid}h2{break-before:auto}
 details{display:block}details>summary{display:none}a{color:inherit}}
@@ -169,7 +170,7 @@ def to_html(meta: Meta, ctx: Context, risks: list[Risk], sources: list[Source], 
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     active = [r for r in risks if r.active]
     c = Counter(r.level for r in active)
-    cards = "".join(f'<div class="card"><b class="lvl-{n}">{c.get(n, 0)}</b><span>{n} (open)</span></div>' for n in ORDER)
+    cards = bars([(f"{n} (open)", c.get(n, 0), n) for n in ORDER])
 
     # 1 scope
     kv = [("Target", meta.target), ("Assessor", meta.tester), ("Authorized by", meta.authorized_by), ("Period", meta.period),
@@ -191,7 +192,7 @@ def to_html(meta: Meta, ctx: Context, risks: list[Risk], sources: list[Source], 
         for r in active[:5]
     )
     exec_html = (
-        f"<h2>2. Executive summary</h2><div class='cards'>{cards}</div><ul class='exec'>"
+        f"<h2>2. Executive summary</h2>{cards}<ul class='exec'>"
         + "".join(f"<li>{_e(x)}</li>" for x in executive_summary(risks, sources, plan, intel)) + "</ul>"
         + (f"<p><b>Top risks</b></p><div class='wrap'><table><tr><th>ID</th><th>Level</th><th>Risk</th><th>Respond</th></tr>{top}</table></div>" if top else "")
     )  # fmt: skip
@@ -274,10 +275,11 @@ def to_html(meta: Meta, ctx: Context, risks: list[Risk], sources: list[Source], 
     retest_html = ""
     if retest:
         rc = retest.counts()
-        rows = "".join(f"<div class='card'><b>{rc[g]}</b><span>{_e(DIFF_LABEL[g])}</span></div>" for g in DIFF_GROUPS)
+        tone = {"fixed": "low", "not_verified": "medium", "still_open": "high", "new": "critical"}
+        rows = bars([(DIFF_LABEL[g], rc[g], tone[g]) for g in DIFF_GROUPS])
         retest_html = (
             f"<h2>7. Retest</h2><p>Compared with {_e(retest.before.path)}. A finding that disappeared counts as fixed only if its tool ran correctly again.</p>"
-            f"<div class='cards'>{rows}</div>"
+            f"{rows}"
             + (f"<div class='warn'>Not verified: {rc['not_verified']} finding(s) disappeared because their tool did not run.</div>" if rc["not_verified"] else "")
         )  # fmt: skip
 
@@ -296,7 +298,7 @@ def to_html(meta: Meta, ctx: Context, risks: list[Risk], sources: list[Source], 
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>{_e(meta.title)}</title><style>{CSS}{RISK_CSS}{REPORT_CSS}</style></head>
 <body><main>
-<div class="cover"><h1>{_e(meta.title)}</h1><p class="sub">{_e(meta.target or 'target not named')} &middot; {_e(when)}</p></div>
+<div class="cover"><p class="prompt">polyscan report</p><h1>{_e(meta.title)}</h1><p class="sub">{_e(meta.target or 'target not named')}<br>{_e(when)}</p></div>
 {scope}{exec_html}{method}{register}{treat}{threats}{retest_html}{appendix}
 </main></body></html>
 """

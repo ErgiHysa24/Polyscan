@@ -478,6 +478,21 @@ In `polyscan/tools.py`: scrivi una funzione `parse_...(testo, root)` che trasfor
 
 ## Limiti
 
+### In parole semplici
+
+- **Non attacca.** polyscan osserva e segnala; non prova a sfruttare le falle. Dice "qui c'è una probabile SQL injection", non la dimostra entrando nel database. Per quello serve un test manuale, autorizzato, su una copia di prova.
+- **Vede solo le pagine che riesce a raggiungere.** Sul sito acceso segue i link come un visitatore: le pagine che compaiono solo con JavaScript complesso, e le API a cui nessun link porta, possono sfuggirgli.
+- **Alcuni login non li sa fare da solo.** Sa compilare un form semplice con utente e password. Con un codice a tempo (app di autenticazione), un token nascosto nel form o "Accedi con Google" bisogna entrare dal browser e passargli il cookie di sessione.
+- **Del database legge la configurazione scritta nei file, non il database acceso.** Vede `POSTGRES_PASSWORD=postgres` nel compose; non sa quali utenti e permessi esistono davvero dentro.
+- **Non capisce la logica dell'applicazione.** "L'utente A riesce a vedere gli ordini dell'utente B" lo scopre solo una persona che prova.
+- **I punteggi di rischio sono stime ragionate, non misure.** Per questo ogni rischio mostra il perché del suo punteggio: così lo puoi correggere.
+- **Il collegamento alle tecniche MITRE ATT&CK è una tabella di polyscan.** I nomi delle tecniche sono verificati sui dati ufficiali; la scelta di quale tecnica abbinare a quale debolezza non è di MITRE.
+- **Se uno strumento non parte, lo dice.** Non è un limite ma una regola: un controllo non eseguito compare come tale e il comando esce con codice 3, perché "nessun problema trovato" non deve mai voler dire "nessun controllo fatto".
+- **È stato provato su applicazioni di esempio**, non ancora su un'applicazione reale.
+
+### Dettagli tecnici
+
+
 - **Trivy controlla le immagini che il progetto nomina, non quelle che costruisce.** Le immagini ricavate da `FROM` e `image:` sono scaricate dal registro da Trivy stesso (la cartella del progetto e il socket di Docker non gli vengono mai dati; fa solo la ricerca di vulnerabilità, non quella dei segreti). Un servizio Compose con solo `build:` non viene controllato; un nome con una variabile (`FROM ${BASE}`) non può essere risolto e compare come segnalazione informativa "non controllata" invece di sparire. Il nome dell'immagine viene da un file del progetto, quindi è controllato con uno schema rigido prima di arrivare a un comando; al massimo 20 immagini per esecuzione. Il nome dell'immagine può puntare a **qualunque registro**: se esegui polyscan su codice di altri (per esempio le pull request da fork), usa `pull_request` e non `pull_request_target`, e non dare segreti al job, come per ogni strumento che legge file del progetto. Servono rete (registro e banca dati di Trivy): se non c'è, o un'immagine è privata e non si può scaricare, il controllo risulta **fallito**, mai pulito. Le immagini base (`postgres:16`, `python:3.12`) portano spesso segnalazioni che non dipendono da te: la correzione è cambiare tag o immagine, e ogni segnalazione indica la riga del file dove farlo. Un tag come `latest` viene scansionato per quello che è oggi, non per quello che sarà domani.
 - **`npm audit` e `cargo-audit` guardano solo il file di blocco** (`package-lock.json`, `Cargo.lock`): non installano nulla e non eseguono script del progetto. Se una verifica non può avvenire (niente rete, `npm` o `cargo-audit` assenti, risposta illeggibile) il controllo risulta **fallito o non eseguito**, mai "pulito". Molte segnalazioni coincidono con quelle di OSV-Scanner (stesso avviso GHSA): compaiono due volte, una per strumento. Per RustSec la gravità è calcolata dal vettore CVSS v3 (la banca dati dà solo il vettore); se manca o è v4 la gravità è *media*. Gli avvisi "unmaintained/yanked" sono segnalati come *bassa*, ma il loro formato nell'output di cargo-audit è provato solo su dati scritti secondo la documentazione, non su un caso reale. Nell'action, `cargo-audit` viene compilato (circa 5 minuti) solo se c'è un `Cargo.lock`.
 - Lo stesso problema può comparire due volte se lo vedono due strumenti (per esempio Semgrep e Bandit sulla stessa riga): vengono tolte solo le ripetizioni identiche dello stesso strumento.

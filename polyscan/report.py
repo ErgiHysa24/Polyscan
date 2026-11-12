@@ -14,6 +14,7 @@ from .models import ERROR, OK, SKIPPED, UNAVAILABLE, Severity
 from .scanner import ScanResult
 
 ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
+STATUS_TAG = {OK: "[ ok ]", ERROR: "[FAIL]", UNAVAILABLE: "[miss]", SKIPPED: "[skip]"}  # like a terminal would print it
 STATUS_TEXT = {
     OK: "ok",
     SKIPPED: "nothing to scan",
@@ -144,34 +145,65 @@ def to_markdown(result: ScanResult, limit: int = 20) -> str:
 # ------------------------------------------------------------------- html
 
 CSS = """
-:root{--bg:#f6f7f9;--card:#fff;--text:#1c2330;--muted:#5d6676;--line:#dfe3ea;
---critical:#8b1d2c;--high:#c62828;--medium:#b26a00;--low:#1565a0;--info:#6b7280;--bad:#c62828}
-@media (prefers-color-scheme:dark){:root{--bg:#10141b;--card:#1a212c;--text:#e6eaf0;--muted:#9aa4b2;
---line:#2b3442;--critical:#ff6b7d;--high:#ff7b72;--medium:#e3a53b;--low:#6cb6ff;--info:#9aa4b2;--bad:#ff7b72}}
+:root{--bg:#f3f5f4;--card:#fbfcfb;--text:#14201c;--muted:#566660;--line:#c9d1cd;--accent:#0b6b57;
+--critical:#a3122a;--high:#c8501e;--medium:#9a6b00;--low:#2b62a8;--info:#66736e;--bad:#a3122a;
+--mono:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+--sans:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1512;--card:#121d19;--text:#d5e2dc;--muted:#8da099;
+--line:#27352f;--accent:#5fd0a8;--critical:#ff6b81;--high:#ff9461;--medium:#e0b040;--low:#7fb2f0;--info:#8da099;--bad:#ff6b81}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif}
-main{max-width:1000px;margin:0 auto;padding:24px 16px 48px}
-h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 10px}
-.sub{color:var(--muted);margin:0 0 20px;word-break:break-all}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
-.card b{display:block;font-size:26px;line-height:1.1}.card span{color:var(--muted);font-size:13px}
-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans)}
+main{max-width:1040px;margin:0 auto;padding:28px 18px 56px}
+.prompt{font:14px/1.4 var(--mono);color:var(--accent);margin:0 0 10px}
+.prompt::before{content:"$ ";color:var(--muted)}
+h1{font:700 26px/1.2 var(--mono);letter-spacing:-.01em;margin:0 0 6px}
+h2{font:700 15px/1.3 var(--mono);margin:34px 0 12px;display:flex;align-items:center;gap:12px}
+h2::before{content:"##";color:var(--accent)}
+h2::after{content:"";flex:1;border-top:1px dashed var(--line)}
+.sub{color:var(--muted);margin:0 0 22px;word-break:break-all;font:13px/1.6 var(--mono)}
+.bars{font:14px/1.75 var(--mono);margin:0 0 4px;padding:14px 16px;background:var(--card);border:1px solid var(--line);
+border-left:3px solid var(--accent);border-radius:2px;white-space:pre;overflow-x:auto}
+.bars .off{color:var(--line)}.bars b{font-weight:700}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
+th,td{text-align:left;padding:8px 11px;border-bottom:1px dashed var(--line);vertical-align:top}
+th{font:700 12px/1.4 var(--mono);color:var(--muted);border-bottom:1px solid var(--line);background:var(--bg)}
 tr:last-child td{border-bottom:0}.wrap{overflow-x:auto}
-.sev{font-weight:700;text-transform:uppercase;font-size:12px}
+.sev{font:700 12.5px/1.5 var(--mono);white-space:nowrap}
+.sev::before{content:"[";color:var(--muted);font-weight:400}.sev::after{content:"]";color:var(--muted);font-weight:400}
 .critical{color:var(--critical)}.high{color:var(--high)}.medium{color:var(--medium)}.low{color:var(--low)}.info{color:var(--info)}
-code,pre{font:13px/1.4 ui-monospace,Consolas,monospace}
-pre{margin:6px 0 0;padding:8px;background:var(--bg);border-radius:6px;overflow-x:auto;white-space:pre-wrap}
-.warn{border:1px solid var(--bad);color:var(--bad);border-radius:8px;padding:12px;margin:16px 0;font-weight:600}
-.muted{color:var(--muted)}
+code,pre{font:13px/1.45 var(--mono)}
+pre{margin:6px 0 0;padding:8px 10px;background:var(--bg);border-left:2px solid var(--line);overflow-x:auto;white-space:pre-wrap}
+.warn{border:1px solid var(--bad);border-left-width:3px;color:var(--bad);padding:11px 14px;margin:16px 0;font-weight:600;background:var(--card)}
+.warn::before{content:"! ";font-family:var(--mono)}
+.muted{color:var(--muted)}a{color:var(--accent)}
+.foot{margin-top:40px;padding-top:12px;border-top:1px dashed var(--line);font:12px/1.5 var(--mono);color:var(--muted)}
 @media (max-width:640px){
 table.f tr:first-child{display:none}
-table.f tr{display:block;padding:8px 0;border-bottom:1px solid var(--line)}
+table.f tr{display:block;padding:8px 0;border-bottom:1px dashed var(--line)}
 table.f td{display:block;border:0;padding:2px 10px}
 }
+@media print{body{background:#fff}.bars,table,.warn{background:#fff}}
 """
+
+
+def bars(rows: list[tuple[str, int, str]], width: int = 28) -> str:
+    """A bar chart made of characters, the way a terminal would print it:
+
+        critical  ████████████░░░░░░░░░░░░░░░░  12
+
+    rows are (label, count, css class). The longest bar is the largest count; a count above zero always
+    shows at least one block, so a single critical finding is never invisible next to 400 low ones."""
+    top = max((n for _, n, _ in rows), default=0) or 1
+    pad = max((len(label) for label, _, _ in rows), default=0)
+    lines = []
+    for label, n, cls in rows:
+        full = 0 if n <= 0 else max(1, round(n / top * width))
+        lines.append(
+            f'{_e(label.ljust(pad))}  <span class="{_e(cls)}">{"█" * full}</span><span class="off">{"░" * (width - full)}</span>  '
+            f'<b class="{_e(cls)}">{n}</b>'
+        )
+    return '<div class="bars" role="img" aria-label="' + _e(", ".join(f"{label} {n}" for label, n, _ in rows)) + '">' + "\n".join(lines) + "</div>"
+
 
 
 def _e(value) -> str:
@@ -184,15 +216,13 @@ def to_html(result: ScanResult) -> str:
     when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     langs = ", ".join(f"{k} ({v})" for k, v in result.languages.items()) or "none detected"
 
-    cards = "".join(
-        f'<div class="card"><b class="{s.label}">{c.get(s, 0)}</b><span>{s.label}</span></div>' for s in ORDER
-    )
+    cards = bars([(s.label, c.get(s, 0), s.label) for s in ORDER])
     tool_rows = []
     for t in result.tools:
         cls = ' class="high"' if t.status in (ERROR, UNAVAILABLE) else ""
         found = len(t.findings) if t.status == OK else "-"
         tool_rows.append(
-            f"<tr><td>{_e(t.name)}</td><td{cls}>{_e(STATUS_TEXT.get(t.status, t.status))}</td>"
+            f"<tr><td>{_e(t.name)}</td><td{cls}><code>{STATUS_TAG.get(t.status, "[ ?? ]")}</code> {_e(STATUS_TEXT.get(t.status, t.status))}</td>"
             f"<td>{found}</td><td class='muted'>{_e(t.detail)}</td></tr>"
         )
     tool_rows = "".join(tool_rows)
@@ -225,9 +255,10 @@ def to_html(result: ScanResult) -> str:
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>polyscan report</title><style>{CSS}</style></head>
 <body><main>
-<h1>polyscan report</h1>
+<p class="prompt">polyscan {_e({"site": "dast", "host": "ports"}.get(result.kind, "scan"))}</p>
+<h1>Scan report</h1>
 <p class="sub">{_e(result.root)}<br>{_e(when)} &middot; polyscan {_e(__version__)} &middot; {_e({"site": "site scan", "host": "host check"}.get(result.kind) or "languages: " + langs)}</p>
-<div class="cards">{cards}</div>{warn}
+{cards}{warn}
 <h2>Tools</h2>
 <div class="wrap"><table><tr><th>Tool</th><th>Status</th><th>Findings</th><th>Detail</th></tr>{tool_rows}</table></div>
 <h2>Findings</h2>{findings_html}
