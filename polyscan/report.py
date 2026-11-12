@@ -222,7 +222,7 @@ def to_html(result: ScanResult) -> str:
         cls = ' class="high"' if t.status in (ERROR, UNAVAILABLE) else ""
         found = len(t.findings) if t.status == OK else "-"
         tool_rows.append(
-            f"<tr><td>{_e(t.name)}</td><td{cls}><code>{STATUS_TAG.get(t.status, "[ ?? ]")}</code> {_e(STATUS_TEXT.get(t.status, t.status))}</td>"
+            f"<tr><td>{_e(t.name)}</td><td{cls}><code>{STATUS_TAG.get(t.status, '[ ?? ]')}</code> {_e(STATUS_TEXT.get(t.status, t.status))}</td>"
             f"<td>{found}</td><td class='muted'>{_e(t.detail)}</td></tr>"
         )
     tool_rows = "".join(tool_rows)
