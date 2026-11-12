@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -153,6 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--epss-file", metavar="FILE")
     rp.add_argument("--factors", metavar="FILE", help="OWASP Risk Rating factors (see `polyscan risk --factors`)")
     rp.add_argument("--retest", metavar="BEFORE.json", help="an earlier report: adds the retest section (fixed / still open / new)")
+    sb = sub.add_parser("sbom", help="write the list of all dependencies (SBOM) in CycloneDX format, with Trivy in Docker")
+    sb.add_argument("path", nargs="?", default=".")
+    sb.add_argument("--output", metavar="FILE", required=True, help="where to write the CycloneDX JSON")
     df = sub.add_parser("diff", help="retest: compare two JSON reports (before / after the fixes): fixed, still open, new")
     df.add_argument("before", help="JSON report of the first scan")
     df.add_argument("after", help="JSON report of the scan after the fixes")
@@ -345,6 +349,18 @@ def cmd_report(args) -> int:
     return EXIT_GAPS if "error" in statuses or (intel and intel.problems) else EXIT_OK
 
 
+def cmd_sbom(args) -> int:
+    from . import sbom
+
+    data, count, why = sbom.generate(Path(args.path))
+    if data is None:
+        print(f"error: SBOM not written: {why}", file=sys.stderr)
+        return EXIT_GAPS
+    Path(args.output).write_text(json.dumps(data, indent=1), encoding="utf-8")
+    print(f"SBOM (CycloneDX {data.get('specVersion')}): {args.output} - {count} libraries")
+    return EXIT_OK
+
+
 def cmd_diff(args) -> int:
     from . import diff
 
@@ -378,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_risk(args)
     if args.command == "diff":
         return cmd_diff(args)
+    if args.command == "sbom":
+        return cmd_sbom(args)
     if args.command == "report":
         return cmd_report(args)
     if args.command == "ports":

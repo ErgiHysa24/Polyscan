@@ -168,6 +168,8 @@ jobs:
             --decisions examples/vulnerable-demo/polyscan-risk.json --retest "$REPORT_DIR/polyscan-report.json" \
             --factors examples/vulnerable-demo/polyscan-factors.json
           echo "report exit=$?"
+          polyscan sbom examples/vulnerable-demo --output sbom.cdx.json > sbom.out 2> sbom.err
+          echo "::notice title=sbom::exit=$? $(cat sbom.out | head -c 300) $(head -c 500 sbom.err | tr '\n' ' ')"
           polyscan diff "$REPORT_DIR/polyscan-report.json" "$REPORT_DIR/polyscan-report.json" --json diff.json > /dev/null
           echo "diff exit=$?"
           set -e
@@ -176,6 +178,10 @@ jobs:
           html = open("assessment.html", encoding="utf-8").read()
           if "Second opinion: OWASP Risk Rating" not in html: sys.exit("no OWASP comparison")
           missing = [s for s in ("1. Scope", "2. Executive summary", "3. Method", "4. Risk matrix", "5. Risk treatment", "6. Threats", "7. Retest", "8. Appendix") if s not in html]
+          bom = json.load(open("sbom.cdx.json"))
+          libs = [c for c in bom["components"] if c.get("type") == "library"]
+          print("::notice title=sbom-content::" + f"CycloneDX {bom['specVersion']}, {len(libs)} libraries, first: {json.dumps(libs[0])[:400]}")
+          if bom["bomFormat"] != "CycloneDX" or len(libs) < 5: sys.exit("SBOM too small")
           d = json.load(open("diff.json"))
           print("::notice title=assessment::" + f"{len(html)} chars, missing sections: {missing}; self-diff: {d['summary']}")
           if missing or d["summary"]["new"] or d["summary"]["fixed"] or not d["summary"]["still_open"]:
