@@ -107,6 +107,8 @@ jobs:
           path: examples/vulnerable-demo
           fail-on: none
           risk-assessment: "true"
+          risk-decisions: examples/vulnerable-demo/polyscan-risk.json
+          risk-intel: "true"
       - name: Check the report
         env:
           REPORT_DIR: ${{ steps.scan.outputs.report-dir }}
@@ -134,6 +136,16 @@ jobs:
           print("::notice title=threat-links::" + str({"with-attack": sum(bool(t["attack"]) for t in threats), "with-cwe": sum(bool(t["cwe"]) for t in threats), "with-cve": sum(bool(t["cve"]) for t in threats)}))
           if not any(t["attack"] for t in threats) or not any(t["cve"] for t in threats) or not any(t["basis"] == "cwe" for t in threats):
               problems.append("the risk register has no CVE, no CWE-based link or no ATT&CK technique")
+          treat, ti = risk["treatment"], risk["threat_intel"] or {}
+          print("::notice title=treatment::" + str({"states": treat["states"], "false-positives": len(treat["false_positives"]), "warnings": treat["warnings"]})[:1500])
+          print("::notice title=threat-intel::" + str(ti)[:800] + " kev-risks=" + str(sum(bool((r.get("exploitation") or {}).get("kev")) for r in risk["risks"])))
+          if not treat["false_positives"] or not treat["states"].get("accepted") or not treat["states"].get("overdue"):
+              problems.append("the demo decisions (false positive, accepted, overdue) were not all applied")
+          if len(ti.get("sources", [])) != 2 or ti.get("problems"):
+              problems.append(f"threat intelligence incomplete: {ti}")
+          sarif = json.load(open(os.path.join(os.environ["REPORT_DIR"], "polyscan-report.sarif")))
+          if sarif.get("version") != "2.1.0" or len(sarif["runs"]) != len(tools):
+              problems.append("SARIF report missing or incomplete")
           if sum(risk["summary"].values()) != len(risk["risks"]):
               problems.append("risk summary does not match the register")
           for name in ("polyscan-risk-report.html", "polyscan-risk-summary.md"):

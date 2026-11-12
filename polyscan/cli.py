@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--html", metavar="FILE", help="write an HTML report")
     s.add_argument("--json", metavar="FILE", help="write a JSON report")
     s.add_argument("--markdown", metavar="FILE", help="write a short Markdown summary (for GitHub job pages)")
+    s.add_argument("--sarif", metavar="FILE", help="write SARIF 2.1.0 (GitHub code scanning, DefectDojo, IDEs)")
     s.add_argument("--fail-on", default="high", choices=[x.label for x in Severity] + ["none"],
                    help="exit with 1 if a finding has this severity or higher (default: high)")  # fmt: skip
     s.add_argument("--strict", action="store_true",
@@ -84,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--html", metavar="FILE", help="write an HTML report")
     d.add_argument("--json", metavar="FILE", help="write a JSON report")
     d.add_argument("--markdown", metavar="FILE", help="write a short Markdown summary")
+    d.add_argument("--sarif", metavar="FILE", help="write SARIF 2.1.0")
     d.add_argument("--fail-on", default="high", choices=[x.label for x in Severity] + ["none"],
                    help="exit with 1 if a finding has this severity or higher (default: high)")  # fmt: skip
     d.add_argument("--strict", action="store_true", help="also exit with 3 if a tool is missing")
@@ -130,6 +132,15 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--decisions-template", metavar="FILE",
                    help="write a decisions file with one 'todo' entry per risk, to fill in")  # fmt: skip
 
+    df = sub.add_parser("diff", help="retest: compare two JSON reports (before / after the fixes): fixed, still open, new")
+    df.add_argument("before", help="JSON report of the first scan")
+    df.add_argument("after", help="JSON report of the scan after the fixes")
+    df.add_argument("--json", metavar="FILE", help="write the comparison as JSON")
+    df.add_argument("--markdown", metavar="FILE", help="write a Markdown summary")
+    df.add_argument("--html", metavar="FILE", help="write an HTML page")
+    df.add_argument("--fail-on", choices=["none", *[s.label for s in reversed(Severity)]], default="none",
+                    help="exit with 1 if a NEW finding has this severity or higher (default: none)")  # fmt: skip
+    df.add_argument("--limit", type=int, default=10, help="findings shown per group in the terminal")
     sub.add_parser("doctor", help="show which tools are available on this computer")
     return p
 
@@ -184,6 +195,11 @@ def _finish(args, result) -> int:
     if args.html:
         Path(args.html).write_text(to_html(result), encoding="utf-8")
         print(f"HTML report: {args.html}")
+    if getattr(args, "sarif", None):
+        from .sarif import to_sarif
+
+        Path(args.sarif).write_text(to_sarif(result), encoding="utf-8")
+        print(f"SARIF report: {args.sarif}")
 
     if args.fail_on != "none":
         threshold = Severity.parse(args.fail_on)
@@ -277,6 +293,28 @@ def cmd_risk(args) -> int:
     return EXIT_OK
 
 
+def cmd_diff(args) -> int:
+    from . import diff
+
+    try:
+        before, after = load_report(args.before), load_report(args.after)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    d = diff.compare(before, after)
+    print(diff.to_terminal(d, args.limit))
+    for path, write, label in ((args.json, diff.to_json, "JSON"), (args.markdown, diff.to_markdown, "Markdown"), (args.html, diff.to_html, "HTML")):
+        if path:
+            Path(path).write_text(write(d), encoding="utf-8")
+            print(f"{label} report: {path}")
+    if args.fail_on != "none":
+        limit = Severity.parse(args.fail_on)
+        if any(f.severity >= limit for f in d.groups["new"]):
+            return EXIT_FINDINGS
+    # The second scan was incomplete: what disappeared cannot be called fixed.
+    return EXIT_GAPS if d.after_gaps() else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -286,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_doctor()
     if args.command == "risk":
         return cmd_risk(args)
+    if args.command == "diff":
+        return cmd_diff(args)
     if args.command == "ports":
         return cmd_ports(args)
     return cmd_dast(args) if args.command == "dast" else cmd_scan(args)

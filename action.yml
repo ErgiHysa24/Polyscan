@@ -65,6 +65,14 @@ inputs:
   risk-data:
     description: What the application holds - public, internal or personal. Used by the risk register.
     default: personal
+  risk-decisions:
+    description: >-
+      Path (in the repository) of a risk treatment file: accept / mitigate / transfer / avoid / false-positive,
+      with owner and dates. See the README. Empty = no decisions.
+    default: ""
+  risk-intel:
+    description: '"true" to download CISA KEV and FIRST EPSS, so CVEs exploited in the wild get the highest likelihood.'
+    default: "false"
   # ---- both
   artifact-name:
     description: Name of the uploaded report. Change it if the action runs more than once in the same workflow run (names must be unique).
@@ -186,6 +194,7 @@ runs:
         args=(scan "$INPUT_PATH" --mode "$INPUT_MODE" --fail-on "$INPUT_FAIL_ON"
               --html "$REPORT_DIR/polyscan-report.html"
               --json "$REPORT_DIR/polyscan-report.json"
+              --sarif "$REPORT_DIR/polyscan-report.sarif"
               --markdown "$REPORT_DIR/polyscan-summary.md")
         IFS=',' read -ra items <<< "$INPUT_EXCLUDE"
         for item in "${items[@]}"; do [ -n "$item" ] && args+=(--exclude "$item"); done
@@ -285,12 +294,21 @@ runs:
       env:
         INPUT_EXPOSURE: ${{ inputs.risk-exposure }}
         INPUT_DATA: ${{ inputs.risk-data }}
+        INPUT_DECISIONS: ${{ inputs.risk-decisions }}
+        INPUT_INTEL: ${{ inputs.risk-intel }}
         REPORT_DIR: ${{ steps.prepare.outputs.report-dir }}
       run: |
         args=(risk --exposure "$INPUT_EXPOSURE" --data "$INPUT_DATA"
               --html "$REPORT_DIR/polyscan-risk-report.html"
               --json "$REPORT_DIR/polyscan-risk-report.json"
-              --markdown "$REPORT_DIR/polyscan-risk-summary.md")
+              --markdown "$REPORT_DIR/polyscan-risk-summary.md"
+              --decisions-template "$REPORT_DIR/polyscan-risk-decisions-todo.json")
+        if [ -n "$INPUT_DECISIONS" ]; then
+          case "$INPUT_DECISIONS" in -*) echo "::error::risk-decisions must not start with a dash"; exit 2;; esac
+          [ -f "$INPUT_DECISIONS" ] || { echo "::error::risk-decisions: $INPUT_DECISIONS does not exist"; exit 2; }
+          args+=(--decisions "$INPUT_DECISIONS")
+        fi
+        [ "$INPUT_INTEL" = "true" ] && args+=(--intel)
         reports=()
         for name in polyscan-report.json polyscan-dast-report.json; do
           [ -f "$REPORT_DIR/$name" ] && reports+=("$REPORT_DIR/$name")

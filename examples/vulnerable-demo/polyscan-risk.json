@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "decisions": [
+    {
+      "tool": "gitleaks",
+      "file": "*",
+      "decision": "false-positive",
+      "owner": "Security team (demo)",
+      "justification": "The keys in the demo projects are fake values planted on purpose to test the scanner."
+    },
+    {
+      "rule": "*",
+      "file": "rust/Cargo.lock",
+      "decision": "accept",
+      "owner": "Backend lead (demo)",
+      "justification": "The Rust demo is never deployed; the vulnerable crate is kept to test cargo-audit.",
+      "expires": "2099-12-31",
+      "ticket": "DEMO-1"
+    },
+    {
+      "rule": "*",
+      "file": "php/*",
+      "tool": "progpilot",
+      "decision": "mitigate",
+      "owner": "PHP developer (demo)",
+      "due": "2026-01-31",
+      "status": "in-progress",
+      "ticket": "DEMO-2",
+      "note": "Due date in the past on purpose: the register must show it as OVERDUE."
+    }
+  ]
+}
