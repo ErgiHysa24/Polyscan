@@ -6,6 +6,8 @@ Le versioni seguono [SemVer](https://semver.org/lang/it/). Finché la versione �
 ## [Non rilasciato]
 
 ### Aggiunto
+- **Contratto per l'integrazione con WatchDog**: JSON Schema dei rapporti di scansione e del registro dei rischi (`docs/schema/`), verificati nei test e nella CI sui rapporti reali; campo `schema` con la versione del formato; guida `docs/INTEGRAZIONE-WATCHDOG.md`.
+- **I valori dei segreti non finiscono più nei rapporti**: nella riga di codice mostrata accanto a una segnalazione, il valore di password, token e chiavi è sostituito da `[redacted]`.
 - **Login con form** per `polyscan dast` (`--login-url`, `--login-user`, `--login-password-env`, `--login-check-url`): il login è provato prima della scansione senza seguire i reindirizzamenti; se non funziona il controllo fallisce. Scansione sempre passiva, mai sul link di logout.
 - **Controllo TLS** con testssl.sh (solo configurazione) sui bersagli https.
 - **SBOM CycloneDX** (`polyscan sbom`) con Trivy, in sola lettura e senza rete.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -129,12 +130,34 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
     return out
 
 
+SECRET_ASSIGN = re.compile(
+    r"""(?ix)((?:[\w.-]*(?:pass(?:word|wd)?|pwd|secret|token|api[_-]?key|private[_-]?key|credential)[\w.-]*)["']?\s*(?:==|[:=])\s*)
+        # a reference to a variable, or an SQL placeholder (%s, %(name)s, ?), is not a secret
+        (?!\s*(?:\$|\{\{|os\.|getenv|environ|None\b|null\b|true\b|false\b|%s|%\(\w+\)s|\?))
+        ("[^"]*"|'[^']*'|[^\s,;#)]+)"""
+)
+URL_PASSWORD = re.compile(r"(://[^:/@\s'\"]+:)[^@/\s'\"]+(@)")
+FLAG_PASSWORD = re.compile(r"(?i)(--(?:requirepass|password|pass)[ =])\S+")
+
+
+def redact(line: str) -> str:
+    """The code line shown next to a finding, with the VALUE of anything that looks like a secret removed.
+
+    A report is shared, attached to tickets, uploaded as a CI artifact: it must not become a second copy of
+    the password it is warning about. The name stays (it is what the reader needs), the value goes."""
+    line = URL_PASSWORD.sub(r"\1[redacted]\2", line)
+    line = FLAG_PASSWORD.sub(r"\1[redacted]", line)
+    return SECRET_ASSIGN.sub(lambda m: m.group(1) + "[redacted]", line)
+
+
 def add_snippets(findings: list[Finding], root: Path) -> list[Finding]:
-    """Fill in the code line where the tool gave none (or gave a placeholder)."""
+    """Fill in the code line where the tool gave none (or gave a placeholder); secrets in any snippet are masked."""
     out = []
     for f in findings:
         if f.category in ("code", "config") and (not f.snippet or f.snippet == "requires login"):
             f = replace(f, snippet=read_line(root, f.file, f.line))
+        if f.snippet and redact(f.snippet) != f.snippet:
+            f = replace(f, snippet=redact(f.snippet))
         out.append(f)
     return out
 

@@ -224,6 +224,8 @@ polyscan report scan.json dast.json ports.json --html assessment.html \
   --decisions polyscan-risk.json --intel --retest scan-precedente.json
 ```
 
+Per usare polyscan dentro **WatchDog** (formato dei file, schemi JSON, regole di importazione) vedi [`docs/INTEGRAZIONE-WATCHDOG.md`](docs/INTEGRAZIONE-WATCHDOG.md).
+
 Il metodo seguito e il confronto con strumenti simili (DefectDojo, SecObserve, Threat Dragon, Greenbone...) sono in [`docs/METODOLOGIA.md`](docs/METODOLOGIA.md) e [`docs/CONFRONTO.md`](docs/CONFRONTO.md).
 
 ## SBOM (`polyscan sbom`)

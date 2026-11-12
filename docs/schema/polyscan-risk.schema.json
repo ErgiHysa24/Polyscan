@@ -1,0 +1,696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ErgiHysa24/Polyscan/docs/schema/polyscan-risk.schema.json",
+  "title": "polyscan risk register",
+  "description": "Written by `polyscan risk --json`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "polyscan-risk/1"
+    },
+    "polyscan": {
+      "type": "string"
+    },
+    "generated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "kind": {
+      "const": "risk-assessment"
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposure": {
+          "enum": [
+            "internet",
+            "internal",
+            "local"
+          ]
+        },
+        "data": {
+          "enum": [
+            "personal",
+            "internal",
+            "public"
+          ]
+        }
+      },
+      "required": [
+        "exposure",
+        "data"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "root",
+          "kind"
+        ]
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "critical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Checks that did not run. Not empty = the register is INCOMPLETE."
+    },
+    "threat_intel": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "sources",
+        "problems",
+        "kev_entries",
+        "epss_scores",
+        "epss_threshold"
+      ],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kev_entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epss_scores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epss_threshold": {
+          "type": "number"
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "likelihood": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "impact": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "likelihood",
+          "impact",
+          "risks"
+        ]
+      }
+    },
+    "method": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R-\\d{3,}$",
+            "description": "Stable only within one report (R-001 is the highest score)."
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "code",
+              "secret",
+              "dependency",
+              "config",
+              "runtime"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rule": {
+            "type": "string"
+          },
+          "tool_severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          },
+          "where": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Places (file:line, URL, address:port); at most 20 listed."
+          },
+          "occurrences": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "likelihood": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "impact": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "description": "likelihood x impact"
+          },
+          "level": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "1-5 low, 6-12 medium, 13-19 high, 20-25 critical"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why the likelihood and impact are what they are, one line each."
+          },
+          "mitigation": {
+            "type": "string"
+          },
+          "suggested_target": {
+            "type": "string"
+          },
+          "threat": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "basis": {
+                "enum": [
+                  "cwe",
+                  "kind",
+                  "none"
+                ],
+                "description": "cwe = links from the CWE the tool reported; kind = from the kind of finding (no CWE given); none = nothing known."
+              },
+              "cwe": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^CWE-\\d+$"
+                }
+              },
+              "cve": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^CVE-\\d{4}-\\d{4,}$"
+                }
+              },
+              "advisories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "owasp_top10": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "stride": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "Spoofing",
+                    "Tampering",
+                    "Repudiation",
+                    "Information disclosure",
+                    "Denial of service",
+                    "Elevation of privilege"
+                  ]
+                }
+              },
+              "attack": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^T\\d{4}(\\.\\d{3})?$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "tactic": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "tactic"
+                  ]
+                },
+                "description": "MITRE ATT&CK Enterprise techniques (names checked against v20.0). The link CWE->technique is polyscan's own judgement."
+              }
+            },
+            "required": [
+              "basis",
+              "cwe",
+              "cve",
+              "advisories",
+              "owasp_top10",
+              "stride",
+              "attack"
+            ]
+          },
+          "treatment": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "decision",
+              "state",
+              "owner",
+              "justification",
+              "expires",
+              "due",
+              "status",
+              "ticket",
+              "note",
+              "match",
+              "entry"
+            ],
+            "properties": {
+              "decision": {
+                "enum": [
+                  "mitigate",
+                  "accept",
+                  "transfer",
+                  "avoid",
+                  "false-positive"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "accepted",
+                  "acceptance-expired",
+                  "planned",
+                  "overdue",
+                  "done",
+                  "false-positive"
+                ]
+              },
+              "owner": {
+                "type": "string"
+              },
+              "justification": {
+                "type": "string"
+              },
+              "expires": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "due": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "status": {
+                "enum": [
+                  "open",
+                  "in-progress",
+                  "done"
+                ]
+              },
+              "ticket": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "match": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "entry": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "state": {
+            "enum": [
+              "untreated",
+              "accepted",
+              "acceptance-expired",
+              "planned",
+              "overdue",
+              "done"
+            ]
+          },
+          "active": {
+            "type": "boolean",
+            "description": "false only for a valid (not expired) acceptance."
+          },
+          "exploitation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "kev",
+              "epss"
+            ],
+            "properties": {
+              "kev": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "dateAdded": {
+                      "type": "string"
+                    },
+                    "dueDate": {
+                      "type": "string"
+                    },
+                    "ransomware": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dateAdded",
+                    "dueDate",
+                    "ransomware",
+                    "name"
+                  ]
+                },
+                "description": "CVEs of this risk in CISA KEV (exploited in the wild)."
+              },
+              "epss": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "epss": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "percentile": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "date": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "epss",
+                    "percentile",
+                    "date"
+                  ]
+                }
+              }
+            }
+          },
+          "owasp_risk_rating": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "const": "OWASP Risk Rating Methodology"
+                  },
+                  "severity": {
+                    "enum": [
+                      "Critical",
+                      "High",
+                      "Medium",
+                      "Low",
+                      "Note"
+                    ]
+                  },
+                  "likelihood": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 9
+                  },
+                  "likelihood_level": {
+                    "enum": [
+                      "LOW",
+                      "MEDIUM",
+                      "HIGH"
+                    ]
+                  },
+                  "impact": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 9
+                  },
+                  "impact_level": {
+                    "enum": [
+                      "LOW",
+                      "MEDIUM",
+                      "HIGH"
+                    ]
+                  },
+                  "impact_basis": {
+                    "enum": [
+                      "technical",
+                      "business"
+                    ]
+                  },
+                  "factors": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9
+                    }
+                  },
+                  "why": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "method",
+                  "severity",
+                  "likelihood",
+                  "likelihood_level",
+                  "impact",
+                  "impact_level",
+                  "impact_basis",
+                  "factors",
+                  "why"
+                ],
+                "description": "Second, independent rating with the OWASP method."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "tools",
+          "rule",
+          "tool_severity",
+          "where",
+          "occurrences",
+          "likelihood",
+          "impact",
+          "score",
+          "level",
+          "reasons",
+          "mitigation",
+          "suggested_target",
+          "threat",
+          "treatment",
+          "state",
+          "active",
+          "exploitation",
+          "owasp_risk_rating"
+        ],
+        "description": "One risk: all findings of one rule (one per container image for image CVEs)."
+      }
+    },
+    "treatment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "states": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "false_positives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "A finding (see polyscan-scan) plus decided_by, justification, entry."
+          }
+        }
+      },
+      "required": [
+        "file",
+        "states",
+        "active",
+        "warnings",
+        "false_positives"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "polyscan",
+    "generated",
+    "kind",
+    "context",
+    "sources",
+    "summary",
+    "coverage_gaps",
+    "threat_intel",
+    "notes",
+    "matrix",
+    "method",
+    "risks",
+    "treatment"
+  ]
+}

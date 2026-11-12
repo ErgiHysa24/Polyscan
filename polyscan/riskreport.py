@@ -149,7 +149,9 @@ def threat_line(r: Risk) -> str:
 def to_json(ctx: Context, risks: list[Risk], sources: list[Source], plan: Plan | None = None, intel: Intel | None = None) -> str:
     c = counts(risks)
     data = {
+        "schema": "polyscan-risk/1",  # format version: docs/schema/polyscan-risk.schema.json
         "polyscan": __version__,
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "kind": "risk-assessment",
         "context": {"exposure": ctx.exposure, "data": ctx.data},
         "sources": [{"file": s.path, "root": s.root, "kind": s.kind} for s in sources],

@@ -439,7 +439,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: python -m pip install . bandit==1.8.6
+      - run: python -m pip install . bandit==1.8.6 jsonschema
       - name: Start the application and its database
         working-directory: examples/shop-app
         run: |
@@ -537,6 +537,13 @@ jobs:
           if not any("5432" in f["file"] or "postgres" in f["rule"] for f in ports["findings"]): problems.append("published database port not seen by ports")
           html = open("assessment.html", encoding="utf-8").read() if __import__("os").path.exists("assessment.html") else ""
           if "2. Executive summary" not in html: problems.append("assessment report missing")
+          import jsonschema
+          for name, schema in (("scan.json", "scan"), ("dast.json", "scan"), ("ports.json", "scan"), ("risk.json", "risk")):
+              try:
+                  jsonschema.validate(load(name), json.load(open(f"docs/schema/polyscan-{schema}.schema.json")))
+              except jsonschema.ValidationError as exc:
+                  problems.append(f"{name} does not match the {schema} schema: {exc.message[:200]} at {list(exc.absolute_path)[:6]}")
+          print("::notice title=shop-schema::checked scan, dast, ports and risk reports against docs/schema")
           if problems:
               print("::error title=shop-problems::" + " | ".join(problems)[:3500]); sys.exit(1)
           EOF6

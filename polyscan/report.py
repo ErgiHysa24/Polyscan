@@ -33,6 +33,7 @@ def counts(result: ScanResult) -> Counter:
 def to_json(result: ScanResult) -> str:
     c = counts(result)
     data = {
+        "schema": "polyscan-scan/1",  # format version: docs/schema/polyscan-scan.schema.json
         "polyscan": __version__,
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),  # used by `polyscan history`
         "root": result.root,

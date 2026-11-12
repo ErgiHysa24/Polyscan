@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ErgiHysa24/Polyscan/docs/schema/polyscan-scan.schema.json",
+  "title": "polyscan scan / dast / ports report",
+  "description": "Written by `polyscan scan --json`, `polyscan dast --json` and `polyscan ports --json`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "polyscan-scan/1"
+    },
+    "polyscan": {
+      "type": "string",
+      "description": "polyscan version that wrote the file."
+    },
+    "generated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+      "description": "When the report was written, UTC."
+    },
+    "root": {
+      "type": "string",
+      "description": "Scanned folder, URL or host."
+    },
+    "kind": {
+      "enum": [
+        "folder",
+        "site",
+        "host"
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Important context, e.g. 'AUTHENTICATED SCAN ...'."
+    },
+    "languages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "description": "Detected languages and how many files each."
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "critical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "info": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ]
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error",
+              "unavailable",
+              "skipped"
+            ],
+            "description": "ok = ran and its findings are complete. error = it FAILED: absence of findings proves nothing. unavailable = not installed. skipped = not relevant here (detail says why)."
+          },
+          "detail": {
+            "type": "string"
+          },
+          "findings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "detail",
+          "findings",
+          "seconds"
+        ],
+        "description": "One check and whether it really ran. An importer must show error/unavailable as a gap, never as 'clean'."
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tool": {
+            "type": "string",
+            "description": "Which check found it: semgrep, gitleaks, osv-scanner, bandit, npm-audit, cargo-audit, composer-audit, progpilot, spotbugs, db-config, trivy, checkov, zap, testssl, ss."
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ],
+            "description": "The tool's own severity, mapped to these five levels."
+          },
+          "rule": {
+            "type": "string",
+            "description": "The rule or advisory id: B608, CVE-2021-44228, GHSA-..., polyscan-db-weak-password, 10038 (ZAP)..."
+          },
+          "message": {
+            "type": "string",
+            "description": "What is wrong, in the tool's words. Untrusted text: escape it before showing it in HTML."
+          },
+          "file": {
+            "type": "string",
+            "description": "Path relative to the scanned folder; for a site scan the URL; for a host check address:port."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "1-based line, or 0 when unknown (dependencies, URLs). Never a guessed 1."
+          },
+          "category": {
+            "enum": [
+              "code",
+              "secret",
+              "dependency",
+              "config",
+              "runtime"
+            ],
+            "description": "Kind of problem; drives the risk model."
+          },
+          "language": {
+            "type": "string",
+            "description": "python, javascript, java, php, rust, docker, terraform, database, or empty."
+          },
+          "snippet": {
+            "type": "string",
+            "description": "The code line, with the VALUE of any secret replaced by [redacted]. Untrusted text."
+          },
+          "cwe": {
+            "type": "string",
+            "pattern": "^(CWE-\\d+(,CWE-\\d+)*)?$",
+            "description": "Weakness ids reported by the tool, comma-separated; empty when the tool gives none."
+          }
+        },
+        "required": [
+          "tool",
+          "severity",
+          "rule",
+          "message",
+          "file",
+          "line",
+          "category",
+          "language",
+          "snippet",
+          "cwe"
+        ],
+        "description": "One problem found by one tool."
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "polyscan",
+    "generated",
+    "root",
+    "kind",
+    "notes",
+    "languages",
+    "summary",
+    "tools",
+    "findings"
+  ],
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Which check found it: semgrep, gitleaks, osv-scanner, bandit, npm-audit, cargo-audit, composer-audit, progpilot, spotbugs, db-config, trivy, checkov, zap, testssl, ss."
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ],
+          "description": "The tool's own severity, mapped to these five levels."
+        },
+        "rule": {
+          "type": "string",
+          "description": "The rule or advisory id: B608, CVE-2021-44228, GHSA-..., polyscan-db-weak-password, 10038 (ZAP)..."
+        },
+        "message": {
+          "type": "string",
+          "description": "What is wrong, in the tool's words. Untrusted text: escape it before showing it in HTML."
+        },
+        "file": {
+          "type": "string",
+          "description": "Path relative to the scanned folder; for a site scan the URL; for a host check address:port."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "1-based line, or 0 when unknown (dependencies, URLs). Never a guessed 1."
+        },
+        "category": {
+          "enum": [
+            "code",
+            "secret",
+            "dependency",
+            "config",
+            "runtime"
+          ],
+          "description": "Kind of problem; drives the risk model."
+        },
+        "language": {
+          "type": "string",
+          "description": "python, javascript, java, php, rust, docker, terraform, database, or empty."
+        },
+        "snippet": {
+          "type": "string",
+          "description": "The code line, with the VALUE of any secret replaced by [redacted]. Untrusted text."
+        },
+        "cwe": {
+          "type": "string",
+          "pattern": "^(CWE-\\d+(,CWE-\\d+)*)?$",
+          "description": "Weakness ids reported by the tool, comma-separated; empty when the tool gives none."
+        }
+      },
+      "required": [
+        "tool",
+        "severity",
+        "rule",
+        "message",
+        "file",
+        "line",
+        "category",
+        "language",
+        "snippet",
+        "cwe"
+      ],
+      "description": "One problem found by one tool."
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "unavailable",
+            "skipped"
+          ],
+          "description": "ok = ran and its findings are complete. error = it FAILED: absence of findings proves nothing. unavailable = not installed. skipped = not relevant here (detail says why)."
+        },
+        "detail": {
+          "type": "string"
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "detail",
+        "findings",
+        "seconds"
+      ],
+      "description": "One check and whether it really ran. An importer must show error/unavailable as a gap, never as 'clean'."
+    }
+  }
+}

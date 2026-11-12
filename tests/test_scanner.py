@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import pytest
 
 from polyscan.models import ERROR, OK, SKIPPED, UNAVAILABLE, Finding, Severity
 from polyscan.scanner import build_command, choose_how, is_excluded, run_tool, scan
@@ -297,3 +298,50 @@ def test_a_failure_with_no_text_still_says_so(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: P())
     r = run_tool(Semgrep(), "local", tmp_path, ScanOptions(), 10)
     assert r.status == ERROR and "no error text" in r.detail
+
+
+@pytest.mark.parametrize("line, hidden, kept", [
+    ("POSTGRES_PASSWORD=postgres", "postgres", "POSTGRES_PASSWORD="),
+    ("      POSTGRES_PASSWORD: 'hunter2'", "hunter2", "POSTGRES_PASSWORD:"),
+    ('app.secret_key = "dev-secret-key-123456"', "dev-secret-key", "secret_key ="),
+    ("DATABASE_URL=postgresql://app:s3cr3t@db:5432/shop", "s3cr3t", "postgresql://app:"),
+    ("command: redis-server --requirepass admin123", "admin123", "--requirepass"),
+    ('  "api_key": "AKIAABCDEFGHIJKLMNOP",', "AKIAABCDEFGHIJKLMNOP", '"api_key"'),
+    ("- MYSQL_ROOT_PASSWORD=root", "=root", "MYSQL_ROOT_PASSWORD="),
+])  # fmt: skip
+def test_secret_values_are_masked_in_snippets(line, hidden, kept):
+    from polyscan.scanner import redact
+
+    out = redact(line)
+    assert hidden not in out and kept in out and "[redacted]" in out
+
+
+@pytest.mark.parametrize("line", [
+    "POSTGRES_PASSWORD=${PG_PASS}", "password = os.environ['PW']", 'cur.execute("SELECT * FROM t WHERE id = " + user_id)',
+    "token = None", "ssl = off", "password: {{ vault_password }}", "x = get_password(user)",
+])  # fmt: skip
+def test_lines_without_a_literal_secret_are_left_alone(line):
+    from polyscan.scanner import redact
+
+    assert redact(line) == line
+
+
+def test_reports_never_carry_the_password_line(tmp_path):
+    from polyscan.scanner import add_snippets
+    from polyscan.models import Finding, Severity
+
+    (tmp_path / ".env").write_text("POSTGRES_PASSWORD=postgres\n")
+    f = Finding("db-config", Severity.HIGH, "polyscan-db-weak-password", "weak", ".env", 1, "config")
+    (out,) = add_snippets([f], tmp_path)
+    assert out.snippet == "POSTGRES_PASSWORD=[redacted]"
+    given = Finding("semgrep", Severity.HIGH, "r", "m", "a.py", 1, "code", snippet='PASSWORD = "abc123"')
+    assert "abc123" not in add_snippets([given], tmp_path)[0].snippet  # also when the tool supplied the line
+
+
+def test_comparisons_are_masked_and_sql_placeholders_kept():
+    from polyscan.scanner import redact
+
+    sql = 'cur.execute("SELECT name FROM users WHERE name = %s AND password_md5 = %s", (u, d))'
+    assert redact(sql) == sql
+    assert redact('if password == "letmein":') == "if password == [redacted]:"
+    assert redact("connect(password='p4ss')") == "connect(password=[redacted])"
