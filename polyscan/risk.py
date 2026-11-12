@@ -27,6 +27,8 @@ from pathlib import Path
 
 from .models import ERROR, UNAVAILABLE, Finding, Severity
 from .threats import Threat, threat_for
+from .intel import Intel, adjust
+from .treatment import Decision, Plan, split
 
 MAX_REPORT_BYTES = 50 * 1024 * 1024
 
@@ -151,6 +153,22 @@ class Risk:
     reasons: list[str]
     mitigation: str
     threat: Threat | None = None  # CVE/CWE -> OWASP -> STRIDE -> ATT&CK (see threats.py)
+    treatment: Decision | None = None  # what the team decided (see treatment.py)
+    today: object = None  # the date the treatment is judged at
+    intel: dict = field(default_factory=dict)  # {"kev": {...}, "epss": {...}} for its CVEs, when asked for
+
+    @property
+    def state(self) -> str:
+        """untreated | accepted | acceptance-expired | planned | overdue | done"""
+        return self.treatment.state(self.today) if self.treatment else "untreated"
+
+    @property
+    def active(self) -> bool:
+        """Still counts for --fail-on: everything except a valid (not expired) acceptance.
+
+        A treatment marked "done" whose finding is still in the scan is NOT treated: the fix did not work
+        or was not deployed. Only the retest, where the finding is gone, closes a risk."""
+        return self.state != "accepted"
 
     @property
     def score(self) -> int:
@@ -171,6 +189,8 @@ class Risk:
             "likelihood": self.likelihood, "impact": self.impact, "score": self.score, "level": self.level,
             "reasons": self.reasons, "mitigation": self.mitigation, "suggested_target": self.target,
             "threat": self.threat.to_dict() if self.threat else None,
+            "treatment": self.treatment.to_dict(self.today) if self.treatment else None, "state": self.state,
+            "active": self.active, "exploitation": self.intel or None,
         }  # fmt: skip
 
 
@@ -194,14 +214,21 @@ def score_group(kind: str, severity: Severity, ctx: Context) -> tuple[int, int, 
     return likelihood, clamp(impact), reasons
 
 
-def assess(findings: list[Finding], ctx: Context | None = None) -> list[Risk]:
-    """One risk per kind of problem (tool + rule), listing every place it occurs."""
+def assess(findings: list[Finding], ctx: Context | None = None, plan: Plan | None = None, intel: Intel | None = None) -> list[Risk]:
+    """One risk per kind of problem (category + rule), listing every place it occurs.
+
+    With a treatment plan, false positives are left out (and kept in plan.false_positives), and a
+    risk whose places have different decisions is split, so each part shows its own decision."""
     ctx = ctx or Context()
+    kept, _removed = split(findings, plan)
     groups: dict[tuple, list[Finding]] = {}
-    for f in findings:
-        groups.setdefault((f.category, f.rule or f.message[:60]), []).append(f)
+    chosen: dict[tuple, Decision | None] = {}
+    for f, d in kept:
+        key = (f.category, f.rule or f.message[:60], d.index if d else 0)
+        groups.setdefault(key, []).append(f)
+        chosen[key] = d
     risks = []
-    for (kind, rule), items in groups.items():
+    for (kind, rule, n), items in groups.items():
         severity = max(f.severity for f in items)
         lead = max(items, key=lambda f: f.severity)
         places = []
@@ -210,13 +237,17 @@ def assess(findings: list[Finding], ctx: Context | None = None) -> list[Risk]:
             if place and place not in places:
                 places.append(place)
         likelihood, impact, reasons = score_group(kind, severity, ctx)
+        threat = threat_for(items, kind)
+        likelihood, why_intel, found = adjust(threat.cve, likelihood, intel)
+        reasons += why_intel
         risks.append(
             Risk(
                 id="", title=" ".join(lead.message.split())[:160] or rule, kind=kind,
                 tools=sorted({f.tool for f in items}), rule=rule, severity=severity,
                 where=places[:5] + ([f"... and {len(places) - 5} more"] if len(places) > 5 else []),
                 count=len(items), likelihood=likelihood, impact=impact, reasons=reasons,
-                mitigation=mitigation_for(kind, rule, lead.message), threat=threat_for(items, kind),
+                mitigation=mitigation_for(kind, rule, lead.message), threat=threat, intel=found,
+                treatment=chosen[(kind, rule, n)], today=plan.today if plan else None,
             )
         )  # fmt: skip
     risks.sort(key=lambda r: (-r.score, -r.severity, -r.count, r.rule))

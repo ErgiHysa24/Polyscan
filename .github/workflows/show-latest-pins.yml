@@ -162,3 +162,14 @@ jobs:
           echo "composer audit exit=$?"
           echo "::notice title=composer-audit-err::$(head -c 600 ../../../ca.err | tr '\n' ' ')"
           echo "::notice title=composer-audit::$(head -c 3000 ../../../ca.json | tr '\n' ' ')"
+  intel-sample:
+    # Real answers of the threat-intelligence sources used by `polyscan risk --intel`.
+    runs-on: ubuntu-latest
+    steps:
+      - name: EPSS API and CISA KEV
+        run: |
+          set +e
+          curl -fsS "https://api.first.org/data/v1/epss?cve=CVE-2021-44228,CVE-2017-5638,CVE-2026-69246&limit=3" -o epss.json; echo "::notice title=epss-exit::$?"
+          echo "::notice title=epss-json::$(head -c 1500 epss.json)"
+          curl -fsS -o kev.json https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json; echo "::notice title=kev-cisa-exit::$? size=$(stat -c%s kev.json 2>/dev/null)"
+          curl -fsS -o /dev/null -w '%{http_code}' "https://api.first.org/data/v1/epss?cve=CVE-0000-0000"; echo
